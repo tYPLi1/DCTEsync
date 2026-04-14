@@ -122,10 +122,12 @@ The script will ask for:
 |---|---|
 | Telegram Bot Token | Yes |
 | Discord Bot Token | Yes |
-| Dashboard port | No (default: 3000) |
+| Dashboard port | No (auto-suggested) |
 | Anthropic / OpenAI / Ollama | No |
 | Google / DeepL / LibreTranslate / Microsoft | No |
 | Config file path | No (default: `./data/config.json`) |
+
+For the dashboard port the script scans a list of common ports (3000, 3001, 4000, 5000, 8080, 8443, 9000), shows which are free or already in use, and pre-selects the first free one as the default. You can accept the suggestion or enter any port from 1–65535. If you pick an occupied port you will be asked to confirm.
 
 It then optionally installs dependencies and sets up a **systemd auto-start service**.
 
