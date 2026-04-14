@@ -65,12 +65,34 @@ if [ "$STASHED" = "1" ]; then
   fi
 fi
 
-# ── Install dependencies ─────────────────────────────────────────────────────
+# ── Install & update dependencies ────────────────────────────────────────────
+# Two-step strategy:
+#   1) npm install     → add any NEW deps from package.json, honour the lockfile
+#   2) npm update      → pull the latest patch / minor releases within the
+#                        semver ranges in package.json (safe, no breaking majors)
 echo ""
 echo -e "${BOLD}── Installing dependencies ──────────────────${RESET}"
 if command -v npm &>/dev/null; then
   npm install --omit=dev
   echo -e "${GREEN}✓ Dependencies installed${RESET}"
+
+  echo ""
+  echo -e "${BOLD}── Updating dependencies to latest compatible versions ──${RESET}"
+  npm update --omit=dev
+  echo -e "${GREEN}✓ Dependencies updated (within semver ranges)${RESET}"
+
+  # Optionally show outdated majors (non-fatal, info only)
+  if npm outdated --omit=dev > /tmp/npm_outdated.$$ 2>/dev/null; then
+    :
+  fi
+  if [ -s /tmp/npm_outdated.$$ ]; then
+    echo ""
+    echo -e "${YELLOW}ℹ Some packages have newer MAJOR versions available${RESET}"
+    echo -e "  (not auto-updated to avoid breaking changes):"
+    cat /tmp/npm_outdated.$$
+    echo -e "  To upgrade manually: ${CYAN}npm install <package>@latest${RESET}"
+  fi
+  rm -f /tmp/npm_outdated.$$
 else
   echo -e "${YELLOW}⚠ npm not found, skipping dependency install.${RESET}"
 fi
