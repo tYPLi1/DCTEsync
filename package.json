@@ -1,0 +1,19 @@
+{
+  "name": "tg-discord-bridge",
+  "version": "1.0.0",
+  "description": "Multi-channel Telegram ↔ Discord bridge bot with optional AI translation",
+  "main": "src/bridge.js",
+  "type": "module",
+  "scripts": {
+    "start": "node src/bridge.js",
+    "dev": "node --watch src/bridge.js"
+  },
+  "dependencies": {
+    "telegraf": "^4.16.3",
+    "discord.js": "^14.15.3",
+    "express": "^4.19.2",
+    "uuid": "^9.0.1",
+    "node-fetch": "^3.3.2",
+    "@anthropic-ai/sdk": "^0.27.0"
+  }
+}
