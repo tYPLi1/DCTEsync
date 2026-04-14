@@ -83,13 +83,30 @@ PORT=$(ask "Dashboard port" "3000")
 # ── Translation (optional) ────────────────────────────────────────────────────
 
 echo ""
-echo -e "${BOLD}── AI Translation (optional) ────────────────${RESET}"
-echo -e "  Provide at least one API key to enable the"
-echo -e "  translation feature in the dashboard."
+echo -e "${BOLD}── Translation Providers (all optional) ─────${RESET}"
+echo -e "  You can configure any combination. Providers"
+echo -e "  without a key are grayed out in the dashboard."
 echo ""
+echo -e "  ${YELLOW}AI Models:${RESET}"
+ANTHROPIC_KEY=$(ask_optional "  Anthropic API Key (Claude Haiku)")
+OPENAI_KEY=$(ask_optional    "  OpenAI API Key    (GPT-4o-mini)")
+echo -ne "  ${CYAN}  Ollama base URL${RESET} ${YELLOW}(optional, Enter to skip)${RESET}: "
+read -r OLLAMA_URL
+echo -ne "  ${CYAN}  Ollama model${RESET} [llama3]: "
+read -r OLLAMA_MODEL
+OLLAMA_MODEL="${OLLAMA_MODEL:-llama3}"
 
-ANTHROPIC_KEY=$(ask_optional "Anthropic API Key (Claude)")
-OPENAI_KEY=$(ask_optional "OpenAI API Key (GPT)")
+echo ""
+echo -e "  ${YELLOW}Dedicated Translation APIs:${RESET}"
+GOOGLE_KEY=$(ask_optional    "  Google Translate API Key")
+DEEPL_KEY=$(ask_optional     "  DeepL API Key")
+echo -ne "  ${CYAN}  LibreTranslate URL${RESET} ${YELLOW}(optional, Enter to skip)${RESET}: "
+read -r LIBRE_URL
+LIBRE_KEY=$(ask_optional     "  LibreTranslate API Key")
+MS_KEY=$(ask_optional        "  Microsoft Translator Key")
+if [ -n "$MS_KEY" ]; then
+  MS_REGION=$(ask "  Microsoft Translator Region" "global")
+fi
 
 # ── Data path ─────────────────────────────────────────────────────────────────
 
@@ -116,19 +133,20 @@ PORT=${PORT}
 DATA_FILE=${DATA_FILE}
 EOF
 
-if [ -n "$ANTHROPIC_KEY" ]; then
-  echo "" >> .env
-  echo "# ── Translation ──────────────────────────────────────────────────────────────" >> .env
-  echo "ANTHROPIC_API_KEY=${ANTHROPIC_KEY}" >> .env
-fi
+# Write translation section
+echo "" >> .env
+echo "# ── Translation Providers ────────────────────────────────────────────────────" >> .env
 
-if [ -n "$OPENAI_KEY" ]; then
-  if [ -z "$ANTHROPIC_KEY" ]; then
-    echo "" >> .env
-    echo "# ── Translation ──────────────────────────────────────────────────────────────" >> .env
-  fi
-  echo "OPENAI_API_KEY=${OPENAI_KEY}" >> .env
-fi
+[ -n "$ANTHROPIC_KEY" ] && echo "ANTHROPIC_API_KEY=${ANTHROPIC_KEY}" >> .env
+[ -n "$OPENAI_KEY"    ] && echo "OPENAI_API_KEY=${OPENAI_KEY}"       >> .env
+[ -n "$OLLAMA_URL"    ] && echo "OLLAMA_BASE_URL=${OLLAMA_URL}"      >> .env
+echo "OLLAMA_MODEL=${OLLAMA_MODEL}"                                   >> .env
+[ -n "$GOOGLE_KEY"    ] && echo "GOOGLE_TRANSLATE_API_KEY=${GOOGLE_KEY}" >> .env
+[ -n "$DEEPL_KEY"     ] && echo "DEEPL_API_KEY=${DEEPL_KEY}"         >> .env
+[ -n "$LIBRE_URL"     ] && echo "LIBRETRANSLATE_URL=${LIBRE_URL}"    >> .env
+[ -n "$LIBRE_KEY"     ] && echo "LIBRETRANSLATE_API_KEY=${LIBRE_KEY}" >> .env
+[ -n "$MS_KEY"        ] && echo "MICROSOFT_TRANSLATOR_KEY=${MS_KEY}" >> .env
+[ -n "$MS_KEY"        ] && echo "MICROSOFT_TRANSLATOR_REGION=${MS_REGION:-global}" >> .env
 
 echo -e "${GREEN}✓ .env written${RESET}"
 

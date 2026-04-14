@@ -3,6 +3,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION } from './store.js';
+import { getProviderStatus } from './translation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -67,10 +68,7 @@ export function startWeb() {
     res.json({
       uptime: process.uptime(),
       pairs: getPairs().length,
-      translationProviders: {
-        anthropic: !!process.env.ANTHROPIC_API_KEY,
-        openai: !!process.env.OPENAI_API_KEY
-      }
+      translationProviders: getProviderStatus()
     });
   });
 

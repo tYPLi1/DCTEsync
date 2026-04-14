@@ -338,6 +338,19 @@ const LANGUAGES = [
   'Romanian','Hungarian','Greek','Hebrew','Hindi','Bengali','Indonesian','Vietnamese'
 ];
 
+// All supported translation providers with labels and type info
+const PROVIDERS = [
+  // ── AI models ───────────────────────────────────────────────────────────────
+  { id: 'anthropic',      label: 'Anthropic (Claude Haiku)', group: 'AI Models',           keyEnv: 'anthropic' },
+  { id: 'openai',         label: 'OpenAI (GPT-4o-mini)',     group: 'AI Models',           keyEnv: 'openai' },
+  { id: 'ollama',         label: 'Ollama (local LLM)',       group: 'AI Models',           keyEnv: 'ollama' },
+  // ── Dedicated translation APIs ───────────────────────────────────────────────
+  { id: 'google',         label: 'Google Translate',         group: 'Translation APIs',    keyEnv: 'google' },
+  { id: 'deepl',          label: 'DeepL',                    group: 'Translation APIs',    keyEnv: 'deepl' },
+  { id: 'libretranslate', label: 'LibreTranslate (local)',   group: 'Translation APIs',    keyEnv: 'libretranslate' },
+  { id: 'microsoft',      label: 'Microsoft Translator',     group: 'Translation APIs',    keyEnv: 'microsoft' },
+];
+
 // ── API helpers ──────────────────────────────────────────────────────────────
 
 async function api(method, path, body) {
@@ -371,16 +384,17 @@ async function refreshStatus() {
     const s = await api('GET', '/api/status');
     const h = Math.floor(s.uptime / 3600);
     const m = Math.floor((s.uptime % 3600) / 60);
-    document.getElementById('stat-uptime').textContent =
-      `uptime: ${h}h ${m}m`;
-    document.getElementById('stat-pairs').textContent =
-      `${s.pairs} pair${s.pairs !== 1 ? 's' : ''}`;
+    document.getElementById('stat-uptime').textContent = `uptime: ${h}h ${m}m`;
+    document.getElementById('stat-pairs').textContent  = `${s.pairs} pair${s.pairs !== 1 ? 's' : ''}`;
 
-    const providers = [];
-    if (s.translationProviders.anthropic) providers.push('Anthropic ✓');
-    if (s.translationProviders.openai)    providers.push('OpenAI ✓');
+    // Show which providers are available (key set or always-on)
+    const tp = s.translationProviders ?? {};
+    const active = PROVIDERS.filter(p => tp[p.id]).map(p => p.label.split(' (')[0]);
     document.getElementById('stat-translation').textContent =
-      providers.length ? providers.join(' · ') : 'No translation API key';
+      active.length ? active.join(' · ') : 'No translation providers configured';
+
+    // Store globally for the provider dropdown
+    window._providerStatus = tp;
   } catch { /* ignore */ }
 }
 
@@ -530,16 +544,35 @@ function buildTranslationPanel(pair) {
 
   const providerRow = document.createElement('div');
   providerRow.className = 'provider-row';
-  providerRow.textContent = 'AI provider: ';
+
+  const provLabel = document.createElement('span');
+  provLabel.textContent = 'Provider: ';
+  providerRow.appendChild(provLabel);
 
   const provSel = document.createElement('select');
-  for (const p of ['anthropic', 'openai']) {
-    const opt = document.createElement('option');
-    opt.value = p;
-    opt.textContent = p === 'anthropic' ? 'Anthropic (Claude)' : 'OpenAI (GPT)';
-    if (p === t.provider) opt.selected = true;
-    provSel.appendChild(opt);
+  const status = window._providerStatus ?? {};
+
+  // Group providers
+  const groups = {};
+  for (const p of PROVIDERS) {
+    if (!groups[p.group]) groups[p.group] = [];
+    groups[p.group].push(p);
   }
+
+  for (const [groupName, items] of Object.entries(groups)) {
+    const grp = document.createElement('optgroup');
+    grp.label = groupName;
+    for (const p of items) {
+      const opt = document.createElement('option');
+      opt.value = p.id;
+      const available = status[p.id] !== false;
+      opt.textContent = `${p.label}${available ? '' : ' ⚠ no key'}`;
+      if (p.id === t.provider) opt.selected = true;
+      grp.appendChild(opt);
+    }
+    provSel.appendChild(grp);
+  }
+
   provSel.addEventListener('change', async () => {
     await saveTranslation(pair.id, { provider: provSel.value });
   });
