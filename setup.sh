@@ -223,12 +223,19 @@ fi
 
 # ── systemd service ───────────────────────────────────────────────────────────
 
+# Use 'sudo' only when not already root
+if [ "$(id -u)" = "0" ]; then
+  SUDO=""
+else
+  SUDO="sudo"
+fi
+
 echo ""
 if confirm "Set up systemd auto-start service? (requires root)"; then
   WORKDIR="$(pwd)"
   NODE_BIN="$(which node)"
 
-  sudo tee /etc/systemd/system/tg-bridge.service > /dev/null << EOF
+  $SUDO tee /etc/systemd/system/tg-bridge.service > /dev/null << EOF
 [Unit]
 Description=Telegram Discord Bridge
 After=network.target
@@ -246,14 +253,14 @@ StandardError=journal
 WantedBy=multi-user.target
 EOF
 
-  sudo systemctl daemon-reload
-  sudo systemctl enable tg-bridge
+  $SUDO systemctl daemon-reload
+  $SUDO systemctl enable tg-bridge
 
   echo ""
   if confirm "Start the bridge now?"; then
-    sudo systemctl start tg-bridge
+    $SUDO systemctl start tg-bridge
     sleep 2
-    sudo systemctl status tg-bridge --no-pager -l
+    $SUDO systemctl status tg-bridge --no-pager -l
   fi
 fi
 
@@ -267,7 +274,7 @@ echo ""
 echo -e "  Dashboard: ${CYAN}http://$(hostname -I | awk '{print $1}'):${PORT}${RESET}"
 echo ""
 echo -e "  Useful commands:"
-echo -e "    ${YELLOW}sudo systemctl status tg-bridge${RESET}   – check status"
-echo -e "    ${YELLOW}sudo journalctl -u tg-bridge -f${RESET}   – live logs"
-echo -e "    ${YELLOW}sudo systemctl restart tg-bridge${RESET}  – restart"
+echo -e "    ${YELLOW}systemctl status tg-bridge${RESET}   – check status"
+echo -e "    ${YELLOW}journalctl -u tg-bridge -f${RESET}   – live logs"
+echo -e "    ${YELLOW}systemctl restart tg-bridge${RESET}  – restart"
 echo ""

@@ -98,13 +98,20 @@ else
 fi
 
 # ── Restart service if systemd is set up ─────────────────────────────────────
+# Use 'sudo' only when not already root
+if [ "$(id -u)" = "0" ]; then
+  SUDO=""
+else
+  SUDO="sudo"
+fi
+
 echo ""
 if systemctl list-unit-files 2>/dev/null | grep -q '^tg-bridge\.service'; then
   echo -e "${BOLD}── Restarting service ───────────────────────${RESET}"
-  if sudo systemctl restart tg-bridge; then
+  if $SUDO systemctl restart tg-bridge; then
     echo -e "${GREEN}✓ Service restarted${RESET}"
     sleep 1
-    sudo systemctl status tg-bridge --no-pager -l | head -n 10
+    $SUDO systemctl status tg-bridge --no-pager -l | head -n 10
   else
     echo -e "${RED}✗ Failed to restart tg-bridge.${RESET}"
   fi
