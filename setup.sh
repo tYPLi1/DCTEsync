@@ -210,7 +210,38 @@ echo "OLLAMA_MODEL=${OLLAMA_MODEL}"                                   >> .env
 [ -n "$MS_KEY"        ] && echo "MICROSOFT_TRANSLATOR_KEY=${MS_KEY}" >> .env
 [ -n "$MS_KEY"        ] && echo "MICROSOFT_TRANSLATOR_REGION=${MS_REGION:-global}" >> .env
 
+# ── Confirmation summary ──────────────────────────────────────────────────────
+# Show a masked preview so the user can confirm keys were captured correctly.
+# mask() keeps the first 6 chars and replaces the rest with ****
+mask() {
+  local v="$1"
+  if [ ${#v} -le 6 ]; then
+    echo "****"
+  else
+    echo "${v:0:6}****"
+  fi
+}
+
 echo -e "${GREEN}✓ .env written${RESET}"
+echo ""
+echo -e "${BOLD}── Saved configuration ──────────────────────${RESET}"
+echo -e "  TELEGRAM_TOKEN          $(mask "$TG_TOKEN")"
+echo -e "  DISCORD_TOKEN           $(mask "$DC_TOKEN")"
+echo -e "  PORT                    ${PORT}"
+echo -e "  DATA_FILE               ${DATA_FILE}"
+[ -n "$ANTHROPIC_KEY" ] && echo -e "  ANTHROPIC_API_KEY       $(mask "$ANTHROPIC_KEY")"
+[ -n "$OPENAI_KEY"    ] && echo -e "  OPENAI_API_KEY          $(mask "$OPENAI_KEY")"
+[ -n "$OLLAMA_URL"    ] && echo -e "  OLLAMA_BASE_URL         ${OLLAMA_URL}"
+[ -n "$GOOGLE_KEY"    ] && echo -e "  GOOGLE_TRANSLATE_KEY    $(mask "$GOOGLE_KEY")"
+[ -n "$DEEPL_KEY"     ] && echo -e "  DEEPL_API_KEY           $(mask "$DEEPL_KEY")"
+[ -n "$LIBRE_URL"     ] && echo -e "  LIBRETRANSLATE_URL      ${LIBRE_URL}"
+[ -n "$LIBRE_KEY"     ] && echo -e "  LIBRETRANSLATE_KEY      $(mask "$LIBRE_KEY")"
+[ -n "$MS_KEY"        ] && echo -e "  MICROSOFT_TRANSLATOR    $(mask "$MS_KEY")  (region: ${MS_REGION:-global})"
+echo ""
+echo -e "  ${YELLOW}To change any value later, edit ${CYAN}.env${YELLOW} directly:${RESET}"
+echo -e "    ${CYAN}nano $(pwd)/.env${RESET}"
+echo -e "  Then restart the bridge:"
+echo -e "    ${CYAN}systemctl restart tg-bridge${RESET}"
 
 # ── Install dependencies ──────────────────────────────────────────────────────
 
