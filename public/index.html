@@ -311,21 +311,184 @@
     #toast.show { opacity: 1; transform: translateY(0); }
     #toast.error { border-color: var(--danger); color: var(--danger); }
     #toast.ok    { border-color: var(--success); color: var(--success); }
+
+    /* ── SETTINGS PANEL ──────────────────────────────────────────────────── */
+    #settings-panel {
+      display: none;
+    }
+
+    #settings-panel.open {
+      display: block;
+    }
+
+    .settings-section {
+      margin-bottom: 20px;
+    }
+
+    .settings-section h3 {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: .06em;
+      margin-bottom: 12px;
+    }
+
+    .settings-hint {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-bottom: 14px;
+    }
+
+    .btn-settings {
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      padding: 6px 14px;
+      font-size: 0.8rem;
+    }
+
+    .btn-settings:hover { color: var(--text); opacity: 1; background: var(--border); }
+    .btn-settings.active { color: var(--text); border-color: var(--accent); }
+
+    input[type="password"] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 0.875rem;
+      outline: none;
+      transition: border-color .15s;
+      width: 100%;
+    }
+
+    input[type="password"]:focus { border-color: var(--accent); }
+    input[type="number"] {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 0.875rem;
+      outline: none;
+      width: 100%;
+    }
   </style>
 </head>
 <body>
 
 <header>
   <h1><span class="tg">Telegram</span> ↔ <span class="dc">Discord</span> Bridge</h1>
-  <div id="status-bar">
-    <span><span class="dot"></span>Running</span>
-    <span id="stat-uptime">uptime: –</span>
-    <span id="stat-pairs">0 pairs</span>
-    <span id="stat-translation">–</span>
+  <div style="display:flex;align-items:center;gap:16px;flex-wrap:wrap;">
+    <div id="status-bar">
+      <span><span class="dot"></span>Running</span>
+      <span id="stat-uptime">uptime: –</span>
+      <span id="stat-pairs">0 pairs</span>
+      <span id="stat-translation">–</span>
+    </div>
+    <button id="settings-btn" class="btn-settings" onclick="toggleSettings()">⚙ Settings</button>
   </div>
 </header>
 
 <main>
+  <!-- SETTINGS -->
+  <div id="settings-panel">
+    <div class="card">
+      <h2>⚙ Settings</h2>
+      <p class="settings-hint">Leave a field blank to keep the current value. Tokens are shown masked for security. Restart the bridge after saving to apply changes.</p>
+      <form id="settings-form">
+
+        <div class="settings-section">
+          <h3>Bot Tokens</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="s-tg-token">Telegram Bot Token</label>
+              <input type="password" id="s-tg-token" name="TELEGRAM_TOKEN" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="s-dc-token">Discord Bot Token</label>
+              <input type="password" id="s-dc-token" name="DISCORD_TOKEN" autocomplete="off" />
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Server</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="s-port">Dashboard Port</label>
+              <input type="number" id="s-port" name="PORT" min="1" max="65535" />
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>AI Model Keys</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="s-anthropic">Anthropic API Key (Claude Haiku)</label>
+              <input type="password" id="s-anthropic" name="ANTHROPIC_API_KEY" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="s-openai">OpenAI API Key (GPT-4o-mini)</label>
+              <input type="password" id="s-openai" name="OPENAI_API_KEY" autocomplete="off" />
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Ollama (local AI)</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="s-ollama-url">Ollama Base URL</label>
+              <input type="text" id="s-ollama-url" name="OLLAMA_BASE_URL" placeholder="http://localhost:11434" />
+            </div>
+            <div class="form-group">
+              <label for="s-ollama-model">Ollama Model</label>
+              <input type="text" id="s-ollama-model" name="OLLAMA_MODEL" placeholder="llama3" />
+            </div>
+          </div>
+        </div>
+
+        <div class="settings-section">
+          <h3>Translation API Keys</h3>
+          <div class="form-grid">
+            <div class="form-group">
+              <label for="s-google">Google Translate API Key</label>
+              <input type="password" id="s-google" name="GOOGLE_TRANSLATE_API_KEY" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="s-deepl">DeepL API Key</label>
+              <input type="password" id="s-deepl" name="DEEPL_API_KEY" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="s-libre-url">LibreTranslate URL</label>
+              <input type="text" id="s-libre-url" name="LIBRETRANSLATE_URL" placeholder="http://localhost:5000" />
+            </div>
+            <div class="form-group">
+              <label for="s-libre-key">LibreTranslate API Key</label>
+              <input type="password" id="s-libre-key" name="LIBRETRANSLATE_API_KEY" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="s-ms-key">Microsoft Translator Key</label>
+              <input type="password" id="s-ms-key" name="MICROSOFT_TRANSLATOR_KEY" autocomplete="off" />
+            </div>
+            <div class="form-group">
+              <label for="s-ms-region">Microsoft Translator Region</label>
+              <input type="text" id="s-ms-region" name="MICROSOFT_TRANSLATOR_REGION" placeholder="global" />
+            </div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:14px;margin-top:4px;">
+          <span id="settings-save-status" class="save-status"></span>
+          <button type="submit" class="btn-primary">Save Settings</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <!-- ADD PAIR -->
   <div class="card">
     <h2>Add Channel Pair</h2>
@@ -893,6 +1056,64 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
     refreshStatus();
   } catch (err) {
     showToast(`Error: ${err.message}`, 'error');
+  }
+});
+
+// ── Settings ──────────────────────────────────────────────────────────────────
+
+function toggleSettings() {
+  const panel = document.getElementById('settings-panel');
+  const btn   = document.getElementById('settings-btn');
+  const open  = panel.classList.toggle('open');
+  btn.classList.toggle('active', open);
+  btn.textContent = open ? '✕ Close' : '⚙ Settings';
+  if (open) loadSettings();
+}
+
+async function loadSettings() {
+  try {
+    const cfg = await api('GET', '/api/config');
+    // Fill placeholders with masked current values for sensitive fields
+    const SENSITIVE = ['TELEGRAM_TOKEN','DISCORD_TOKEN','ANTHROPIC_API_KEY',
+      'OPENAI_API_KEY','GOOGLE_TRANSLATE_API_KEY','DEEPL_API_KEY',
+      'LIBRETRANSLATE_API_KEY','MICROSOFT_TRANSLATOR_KEY'];
+    const form = document.getElementById('settings-form');
+    for (const el of form.elements) {
+      if (!el.name || !cfg[el.name]) continue;
+      if (SENSITIVE.includes(el.name)) {
+        el.placeholder = cfg[el.name]; // show masked value as placeholder
+        el.value = '';
+      } else {
+        el.value = cfg[el.name];
+      }
+    }
+  } catch (err) {
+    showToast('Could not load settings: ' + err.message, 'error');
+  }
+}
+
+document.getElementById('settings-form').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const updates = {};
+  for (const el of e.target.elements) {
+    if (el.name && el.value.trim()) updates[el.name] = el.value.trim();
+  }
+  if (Object.keys(updates).length === 0) {
+    showToast('No changes to save.', 'error');
+    return;
+  }
+  try {
+    const result = await api('POST', '/api/config', updates);
+    const status = document.getElementById('settings-save-status');
+    status.textContent = `✓ Saved: ${result.updated.join(', ')}`;
+    status.classList.add('visible');
+    setTimeout(() => status.classList.remove('visible'), 3000);
+    // Clear sensitive fields after save and reload masked placeholders
+    await loadSettings();
+    showToast('Settings saved. Restart the bridge to apply changes.', 'ok');
+    refreshStatus();
+  } catch (err) {
+    showToast('Save failed: ' + err.message, 'error');
   }
 });
 

@@ -188,6 +188,14 @@ Open `http://your-host:PORT` after starting the bridge.
 - **DC → Telegram**: toggle by category — images, videos, audio, documents
 - All changes save instantly, no restart needed
 
+**Change API keys or tokens** (click **⚙ Settings** in the top-right):
+- Update any token or API key without re-running `setup.sh`
+- Sensitive fields show the current masked value as a placeholder — leave blank to keep it, or type a new value to replace it
+- Changes are written to `.env` immediately; restart the bridge to apply them:
+  ```bash
+  systemctl restart tg-bridge   # or: docker compose up -d --build
+  ```
+
 **Configure translation per pair** (click **Translation** button):
 - Toggle the master switch to enable translation for this pair
 - Enable each direction independently (`Telegram → Discord` and `Discord → Telegram`)

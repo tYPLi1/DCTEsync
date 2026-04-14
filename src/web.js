@@ -1,10 +1,59 @@
 import express from 'express';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
-import { dirname, join } from 'path';
+import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC } from './store.js';
 import { getProviderStatus } from './translation.js';
 import { bot } from './telegram.js';
+
+const ENV_PATH = resolve(process.cwd(), '.env');
+
+const SENSITIVE_KEYS = new Set([
+  'TELEGRAM_TOKEN', 'DISCORD_TOKEN',
+  'ANTHROPIC_API_KEY', 'OPENAI_API_KEY',
+  'GOOGLE_TRANSLATE_API_KEY', 'DEEPL_API_KEY',
+  'LIBRETRANSLATE_API_KEY', 'MICROSOFT_TRANSLATOR_KEY'
+]);
+
+function parseEnvFile() {
+  if (!existsSync(ENV_PATH)) return {};
+  const result = {};
+  for (const line of readFileSync(ENV_PATH, 'utf8').split('\n')) {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) continue;
+    const eq = t.indexOf('=');
+    if (eq === -1) continue;
+    result[t.slice(0, eq).trim()] = t.slice(eq + 1);
+  }
+  return result;
+}
+
+function writeEnvVars(updates) {
+  const raw = existsSync(ENV_PATH) ? readFileSync(ENV_PATH, 'utf8') : '';
+  const lines = raw.split('\n');
+  const applied = new Set();
+
+  const result = lines.map(line => {
+    const t = line.trim();
+    if (!t || t.startsWith('#')) return line;
+    const eq = t.indexOf('=');
+    if (eq === -1) return line;
+    const key = t.slice(0, eq).trim();
+    if (key in updates) {
+      applied.add(key);
+      return `${key}=${updates[key]}`;
+    }
+    return line;
+  });
+
+  // Append any keys not already in the file
+  for (const [key, val] of Object.entries(updates)) {
+    if (!applied.has(key)) result.push(`${key}=${val}`);
+  }
+
+  writeFileSync(ENV_PATH, result.join('\n'));
+}
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -133,6 +182,41 @@ export function startWeb() {
       pairs:                getPairs().length,
       translationProviders: getProviderStatus()
     });
+  });
+
+  // ── GET /api/config ───────────────────────────────────────────────────────
+  // Returns current .env values. Sensitive keys are masked (first 6 chars + ****)
+  app.get('/api/config', (_req, res) => {
+    const env = parseEnvFile();
+    const out = {};
+    for (const [k, v] of Object.entries(env)) {
+      out[k] = SENSITIVE_KEYS.has(k) && v
+        ? v.slice(0, 6) + '****'
+        : v;
+    }
+    res.json(out);
+  });
+
+  // ── POST /api/config ──────────────────────────────────────────────────────
+  // Updates .env. Omit a field or send empty string to keep the current value.
+  app.post('/api/config', (req, res) => {
+    const updates = {};
+    for (const [k, v] of Object.entries(req.body)) {
+      if (typeof v === 'string' && v.trim() !== '') {
+        updates[k] = v.trim();
+      }
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No values provided.' });
+    }
+    try {
+      writeEnvVars(updates);
+      console.log(`[web] Config updated: ${Object.keys(updates).join(', ')}`);
+      res.json({ ok: true, updated: Object.keys(updates) });
+    } catch (err) {
+      console.error('[web] Failed to write .env:', err.message);
+      res.status(500).json({ error: 'Failed to write .env: ' + err.message });
+    }
   });
 
   app.listen(PORT, () => {
