@@ -374,6 +374,46 @@
       outline: none;
       width: 100%;
     }
+
+    /* ── TOKEN FIELD WITH LOCK BUTTON ────────────────────────────────── */
+    .token-field {
+      display: flex;
+      gap: 6px;
+      align-items: stretch;
+    }
+    .token-field input {
+      flex: 1;
+      min-width: 0;
+    }
+    .btn-lock {
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      border-radius: 6px;
+      padding: 0 11px;
+      font-size: 0.95rem;
+      flex-shrink: 0;
+      cursor: pointer;
+      transition: border-color .15s, color .15s;
+      line-height: 1;
+    }
+    .btn-lock:hover { color: var(--text); border-color: var(--accent); opacity: 1; }
+    .btn-lock.unlocked { color: var(--warn); border-color: var(--warn); }
+    input[type="password"]:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* ── SERVICE TOGGLE ROW ──────────────────────────────────────────── */
+    .service-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding: 10px 14px;
+      background: var(--surface2);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+    }
+    .service-status-active   { color: var(--success); font-size: 0.8rem; font-weight: 600; }
+    .service-status-inactive { color: var(--muted);   font-size: 0.8rem; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -404,11 +444,17 @@
           <div class="form-grid">
             <div class="form-group">
               <label for="s-tg-token">Telegram Bot Token</label>
-              <input type="password" id="s-tg-token" name="TELEGRAM_TOKEN" autocomplete="off" />
+              <div class="token-field">
+                <input type="password" id="s-tg-token" name="TELEGRAM_TOKEN" autocomplete="off" disabled />
+                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-tg-token',this)">🔒</button>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-dc-token">Discord Bot Token</label>
-              <input type="password" id="s-dc-token" name="DISCORD_TOKEN" autocomplete="off" />
+              <div class="token-field">
+                <input type="password" id="s-dc-token" name="DISCORD_TOKEN" autocomplete="off" disabled />
+                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-dc-token',this)">🔒</button>
+              </div>
             </div>
           </div>
         </div>
@@ -428,11 +474,17 @@
           <div class="form-grid">
             <div class="form-group">
               <label for="s-anthropic">Anthropic API Key (Claude Haiku)</label>
-              <input type="password" id="s-anthropic" name="ANTHROPIC_API_KEY" autocomplete="off" />
+              <div class="token-field">
+                <input type="password" id="s-anthropic" name="ANTHROPIC_API_KEY" autocomplete="off" disabled />
+                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-anthropic',this)">🔒</button>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-openai">OpenAI API Key (GPT-4o-mini)</label>
-              <input type="password" id="s-openai" name="OPENAI_API_KEY" autocomplete="off" />
+              <div class="token-field">
+                <input type="password" id="s-openai" name="OPENAI_API_KEY" autocomplete="off" disabled />
+                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-openai',this)">🔒</button>
+              </div>
             </div>
           </div>
         </div>
@@ -452,15 +504,32 @@
         </div>
 
         <div class="settings-section">
+          <h3>Translation Service</h3>
+          <div class="service-toggle-row">
+            <label class="toggle">
+              <input type="checkbox" id="s-translation-enabled" name="TRANSLATION_ENABLED" onchange="updateTranslationStatus(this.checked)" />
+              <span class="slider"></span>
+            </label>
+            <span id="s-translation-status" class="service-status-inactive">Service inaktiv</span>
+          </div>
+        </div>
+
+        <div class="settings-section">
           <h3>Translation API Keys</h3>
           <div class="form-grid">
             <div class="form-group">
               <label for="s-google">Google Translate API Key</label>
-              <input type="password" id="s-google" name="GOOGLE_TRANSLATE_API_KEY" autocomplete="off" />
+              <div class="token-field">
+                <input type="password" id="s-google" name="GOOGLE_TRANSLATE_API_KEY" autocomplete="off" disabled />
+                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-google',this)">🔒</button>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-deepl">DeepL API Key</label>
-              <input type="password" id="s-deepl" name="DEEPL_API_KEY" autocomplete="off" />
+              <div class="token-field">
+                <input type="password" id="s-deepl" name="DEEPL_API_KEY" autocomplete="off" disabled />
+                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-deepl',this)">🔒</button>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-libre-url">LibreTranslate URL</label>
@@ -468,11 +537,17 @@
             </div>
             <div class="form-group">
               <label for="s-libre-key">LibreTranslate API Key</label>
-              <input type="password" id="s-libre-key" name="LIBRETRANSLATE_API_KEY" autocomplete="off" />
+              <div class="token-field">
+                <input type="password" id="s-libre-key" name="LIBRETRANSLATE_API_KEY" autocomplete="off" disabled />
+                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-libre-key',this)">🔒</button>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-ms-key">Microsoft Translator Key</label>
-              <input type="password" id="s-ms-key" name="MICROSOFT_TRANSLATOR_KEY" autocomplete="off" />
+              <div class="token-field">
+                <input type="password" id="s-ms-key" name="MICROSOFT_TRANSLATOR_KEY" autocomplete="off" disabled />
+                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-ms-key',this)">🔒</button>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-ms-region">Microsoft Translator Region</label>
@@ -1061,6 +1136,12 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 
+const SENSITIVE_FIELDS = [
+  'TELEGRAM_TOKEN','DISCORD_TOKEN','ANTHROPIC_API_KEY',
+  'OPENAI_API_KEY','GOOGLE_TRANSLATE_API_KEY','DEEPL_API_KEY',
+  'LIBRETRANSLATE_API_KEY','MICROSOFT_TRANSLATOR_KEY'
+];
+
 function toggleSettings() {
   const panel = document.getElementById('settings-panel');
   const btn   = document.getElementById('settings-btn');
@@ -1070,20 +1151,62 @@ function toggleSettings() {
   if (open) loadSettings();
 }
 
+function updateTranslationStatus(active) {
+  const el = document.getElementById('s-translation-status');
+  if (!el) return;
+  el.textContent = active ? 'Service aktiv' : 'Service inaktiv';
+  el.className   = active ? 'service-status-active' : 'service-status-inactive';
+}
+
+function unlockField(id, btn) {
+  const input = document.getElementById(id);
+  if (input.disabled) {
+    // Unlock for editing
+    input.disabled    = false;
+    input.placeholder = '';
+    btn.textContent   = '🔓';
+    btn.title         = 'Klicken zum Sperren';
+    btn.classList.add('unlocked');
+    input.focus();
+  } else {
+    // Lock again and discard unsaved value
+    input.disabled  = true;
+    input.value     = '';
+    btn.textContent = '🔒';
+    btn.title       = 'Klicken zum Bearbeiten';
+    btn.classList.remove('unlocked');
+    // Restore *** placeholder if the field had a value before
+    input.placeholder = input.dataset.hasValue === '1' ? '***' : '';
+  }
+}
+
 async function loadSettings() {
   try {
     const cfg = await api('GET', '/api/config');
-    // Fill placeholders with masked current values for sensitive fields
-    const SENSITIVE = ['TELEGRAM_TOKEN','DISCORD_TOKEN','ANTHROPIC_API_KEY',
-      'OPENAI_API_KEY','GOOGLE_TRANSLATE_API_KEY','DEEPL_API_KEY',
-      'LIBRETRANSLATE_API_KEY','MICROSOFT_TRANSLATOR_KEY'];
     const form = document.getElementById('settings-form');
     for (const el of form.elements) {
-      if (!el.name || !cfg[el.name]) continue;
-      if (SENSITIVE.includes(el.name)) {
-        el.placeholder = cfg[el.name]; // show masked value as placeholder
-        el.value = '';
-      } else {
+      if (!el.name) continue;
+
+      if (SENSITIVE_FIELDS.includes(el.name)) {
+        const hasValue = !!(cfg[el.name]);
+        // Store whether a value exists so lock-toggle can restore the placeholder
+        el.dataset.hasValue = hasValue ? '1' : '0';
+        // Show *** if a value is stored, nothing if not
+        el.placeholder = hasValue ? '***' : '';
+        el.value       = '';
+        el.disabled    = true;
+        // Reset any open lock button for this field
+        const lockBtn = el.closest('.token-field')?.querySelector('.btn-lock');
+        if (lockBtn) {
+          lockBtn.textContent = '🔒';
+          lockBtn.title       = 'Klicken zum Bearbeiten';
+          lockBtn.classList.remove('unlocked');
+        }
+      } else if (el.name === 'TRANSLATION_ENABLED') {
+        const active = cfg['TRANSLATION_ENABLED'] === 'true';
+        el.checked = active;
+        updateTranslationStatus(active);
+      } else if (cfg[el.name] !== undefined) {
         el.value = cfg[el.name];
       }
     }
@@ -1096,7 +1219,13 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
   e.preventDefault();
   const updates = {};
   for (const el of e.target.elements) {
-    if (el.name && el.value.trim()) updates[el.name] = el.value.trim();
+    if (!el.name) continue;
+    if (el.type === 'checkbox') {
+      // Always save checkbox state (even false)
+      updates[el.name] = el.checked ? 'true' : 'false';
+    } else if (!el.disabled && el.value.trim()) {
+      updates[el.name] = el.value.trim();
+    }
   }
   if (Object.keys(updates).length === 0) {
     showToast('No changes to save.', 'error');
@@ -1108,7 +1237,6 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
     status.textContent = `✓ Saved: ${result.updated.join(', ')}`;
     status.classList.add('visible');
     setTimeout(() => status.classList.remove('visible'), 3000);
-    // Clear sensitive fields after save and reload masked placeholders
     await loadSettings();
     showToast('Settings saved. Restart the bridge to apply changes.', 'ok');
     refreshStatus();
