@@ -13,7 +13,7 @@
 import 'dotenv/config';
 import { startTelegram, sendToTelegram, downloadTelegramFile } from './telegram.js';
 import { startDiscord,  sendToDiscord  }                       from './discord.js';
-import { getPairByTelegramId, getPairByDiscordId }             from './store.js';
+import { getPairByTelegramId, getPairByDiscordId, getTranslationChain } from './store.js';
 import { maybeTranslate }                                       from './translation.js';
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
 import { startWeb }                                             from './web.js';
@@ -59,7 +59,7 @@ async function onTelegramMessage({ chatId, senderName, avatarUrl, text, media })
   // ── Text-only ──────────────────────────────────────────────────────────────
   if (!media) {
     if (!text) return;
-    const translated = await maybeTranslate(text, pair.translation, 'tgToDiscord');
+    const translated = await maybeTranslate(text, pair.translation, 'tgToDiscord', getTranslationChain());
     console.log(`[bridge] TG→DC | pair=${pair.id} | text | from="${senderName}"`);
     await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, translated);
     return;
@@ -110,7 +110,7 @@ async function onTelegramMessage({ chatId, senderName, avatarUrl, text, media })
     }
 
     const captionRaw = media.caption || text || null;
-    const caption    = captionRaw ? await maybeTranslate(captionRaw, pair.translation, 'tgToDiscord') : null;
+    const caption    = captionRaw ? await maybeTranslate(captionRaw, pair.translation, 'tgToDiscord', getTranslationChain()) : null;
 
     console.log(`[bridge] TG→DC | pair=${pair.id} | type=${media.type} | from="${senderName}"`);
     await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, caption, {
@@ -137,7 +137,7 @@ async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, a
     : senderName;
 
   const translatedText = text
-    ? await maybeTranslate(text, pair.translation, 'discordToTg')
+    ? await maybeTranslate(text, pair.translation, 'discordToTg', getTranslationChain())
     : null;
 
   // ── Text-only ──────────────────────────────────────────────────────────────
