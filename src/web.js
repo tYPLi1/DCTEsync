@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC } from './store.js';
 import { getProviderStatus } from './translation.js';
 import { bot } from './telegram.js';
+import { getGuildRoles } from './discord.js';
 
 const ENV_PATH = resolve(process.cwd(), '.env');
 
@@ -229,6 +230,30 @@ export function startWeb() {
 
     console.log(`[web] MediaSync updated: ${req.params.id}`);
     res.json(merged);
+  });
+
+  // ── GET /api/pairs/:id/discord-roles ─────────────────────────────────────
+  // Returns all selectable roles of the Discord guild linked to this pair.
+  app.get('/api/pairs/:id/discord-roles', async (req, res) => {
+    const pair = getPairs().find(p => p.id === req.params.id);
+    if (!pair) return res.status(404).json({ error: 'Pair not found.' });
+    const roles = await getGuildRoles(pair.discordChannelId);
+    res.json(roles);
+  });
+
+  // ── PATCH /api/pairs/:id/display-roles ───────────────────────────────────
+  // Update which Discord role IDs are appended to the sender name in Telegram.
+  // Body: { roleIds: ["123", "456"] }
+  app.patch('/api/pairs/:id/display-roles', (req, res) => {
+    const { roleIds } = req.body;
+    if (!Array.isArray(roleIds)) {
+      return res.status(400).json({ error: 'roleIds must be an array of role ID strings.' });
+    }
+    if (!updatePair(req.params.id, { displayRoles: roleIds })) {
+      return res.status(404).json({ error: 'Pair not found.' });
+    }
+    console.log(`[web] DisplayRoles updated: ${req.params.id} → [${roleIds.join(', ')}]`);
+    res.json({ ok: true, displayRoles: roleIds });
   });
 
   // ── GET /api/status ───────────────────────────────────────────────────────

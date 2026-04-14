@@ -282,6 +282,31 @@
       margin-bottom: 4px;
     }
 
+    /* ── ROLES PANEL ─────────────────────────────────────────────────────── */
+    .roles-panel {
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+      padding: 16px 20px;
+      display: none;
+    }
+    .roles-panel.open { display: block; }
+    .roles-panel h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .roles-hint { font-size: 0.75rem; color: var(--muted); margin-bottom: 14px; }
+    .roles-list { display: flex; flex-wrap: wrap; gap: 10px 24px; }
+    .role-color-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-right: 4px;
+    }
+
     /* ── EMPTY STATE ─────────────────────────────────────────────────────── */
     #empty-state {
       text-align: center;
@@ -996,6 +1021,86 @@ function buildMediaPanel(pair) {
   return panel;
 }
 
+// ── Roles panel ───────────────────────────────────────────────────────────────
+
+function buildRolesPanel(pair) {
+  const panel = document.createElement('div');
+  panel.className = 'roles-panel';
+  panel.id = `roles-${pair.id}`;
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Discord Roles → Telegram';
+  panel.appendChild(heading);
+
+  const hint = document.createElement('p');
+  hint.className = 'roles-hint';
+  hint.textContent = 'Aktivierte Rollen werden hinter dem Absender-Namen in Telegram angehängt — nur wenn der Nutzer die Rolle tatsächlich hat.';
+  panel.appendChild(hint);
+
+  const list = document.createElement('div');
+  list.className = 'roles-list';
+  list.id = `roles-list-${pair.id}`;
+  const loading = document.createElement('span');
+  loading.style.cssText = 'font-size:0.8rem;color:var(--muted)';
+  loading.textContent = 'Loading…';
+  list.appendChild(loading);
+  panel.appendChild(list);
+
+  const footer = document.createElement('div');
+  footer.style.cssText = 'margin-top:14px;display:flex;justify-content:flex-end';
+  const saved = document.createElement('span');
+  saved.className = 'save-status';
+  saved.id = `roles-save-status-${pair.id}`;
+  saved.textContent = '✓ Saved';
+  footer.appendChild(saved);
+  panel.appendChild(footer);
+  return panel;
+}
+
+async function loadRoles(pairId, currentRoleIds) {
+  const list = document.getElementById(`roles-list-${pairId}`);
+  if (!list) return;
+  list.innerHTML = '<span style="font-size:0.8rem;color:var(--muted)">Loading…</span>';
+  try {
+    const roles = await api('GET', `/api/pairs/${pairId}/discord-roles`);
+    list.innerHTML = '';
+    if (!roles.length) {
+      list.innerHTML = '<span style="font-size:0.8rem;color:var(--muted)">Keine Rollen im Discord-Server gefunden.</span>';
+      return;
+    }
+    const selected = new Set(currentRoleIds ?? []);
+    for (const role of roles) {
+      const row = document.createElement('div');
+      row.className = 'toggle-row';
+
+      const tog = toggle(`role-${pairId}-${role.id}`, selected.has(role.id), async (val) => {
+        if (val) selected.add(role.id); else selected.delete(role.id);
+        try {
+          await api('PATCH', `/api/pairs/${pairId}/display-roles`, { roleIds: [...selected] });
+          flashSaved(`roles-save-status-${pairId}`);
+        } catch (err) { showToast('Save failed: ' + err.message, 'error'); }
+      });
+
+      const lbl = document.createElement('span');
+      lbl.className = 'toggle-label';
+      lbl.style.display = 'flex';
+      lbl.style.alignItems = 'center';
+      if (role.color && role.color !== '#000000') {
+        const dot = document.createElement('span');
+        dot.className = 'role-color-dot';
+        dot.style.background = role.color;
+        lbl.appendChild(dot);
+      }
+      lbl.appendChild(document.createTextNode(role.name));
+      row.appendChild(tog);
+      row.appendChild(lbl);
+      list.appendChild(row);
+    }
+  } catch (err) {
+    list.innerHTML = `<span style="font-size:0.8rem;color:var(--danger)">Fehler: ${err.message}</span>`;
+  }
+}
+
 // ── Render pair card ──────────────────────────────────────────────────────────
 
 function renderPair(pair) {
@@ -1046,7 +1151,7 @@ function renderPair(pair) {
   function panelToggle(btnEl, panelId, openLabel = 'Close', closedLabel) {
     const p = document.getElementById(panelId);
     // Close other open panels on this card first
-    card.querySelectorAll('.translation-panel.open, .media-panel.open').forEach(el => {
+    card.querySelectorAll('.translation-panel.open, .media-panel.open, .roles-panel.open').forEach(el => {
       if (el.id !== panelId) {
         el.classList.remove('open');
         // Reset sibling button text
@@ -1072,6 +1177,17 @@ function renderPair(pair) {
   mediaBtn.dataset.closed = 'Media';
   mediaBtn.addEventListener('click', () => panelToggle(mediaBtn, `media-${pair.id}`, 'Close ×', 'Media'));
 
+  const rolesBtn = document.createElement('button');
+  rolesBtn.className = 'btn-ghost btn-sm';
+  rolesBtn.textContent = 'Roles';
+  rolesBtn.dataset.panel  = `roles-${pair.id}`;
+  rolesBtn.dataset.closed = 'Roles';
+  rolesBtn.addEventListener('click', () => {
+    const wasOpen = document.getElementById(`roles-${pair.id}`).classList.contains('open');
+    panelToggle(rolesBtn, `roles-${pair.id}`, 'Close ×', 'Roles');
+    if (!wasOpen) loadRoles(pair.id, pair.displayRoles ?? []);
+  });
+
   const delBtn = document.createElement('button');
   delBtn.className = 'btn-danger btn-sm';
   delBtn.textContent = 'Delete';
@@ -1088,11 +1204,12 @@ function renderPair(pair) {
     }
   });
 
-  actions.append(transBtn, mediaBtn, delBtn);
+  actions.append(transBtn, mediaBtn, rolesBtn, delBtn);
   header.append(ids, actions);
   card.appendChild(header);
   card.appendChild(buildTranslationPanel(pair));
   card.appendChild(buildMediaPanel(pair));
+  card.appendChild(buildRolesPanel(pair));
   return card;
 }
 

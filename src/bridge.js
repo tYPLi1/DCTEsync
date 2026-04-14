@@ -123,9 +123,18 @@ async function onTelegramMessage({ chatId, senderName, avatarUrl, text, media })
 
 // ── Discord → Telegram ────────────────────────────────────────────────────────
 
-async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, attachments }) {
+async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, attachments, roles = [] }) {
   const pair = getPairByDiscordId(channelId);
   if (!pair) return;
+
+  // Append any configured display-roles to the sender name
+  const displayRoleIds = pair.displayRoles ?? [];
+  const matchedRoles   = displayRoleIds.length
+    ? roles.filter(r => displayRoleIds.includes(r.id)).map(r => r.name)
+    : [];
+  const displayName = matchedRoles.length
+    ? `${senderName} · ${matchedRoles.join(' · ')}`
+    : senderName;
 
   const translatedText = text
     ? await maybeTranslate(text, pair.translation, 'discordToTg')
@@ -134,8 +143,8 @@ async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, a
   // ── Text-only ──────────────────────────────────────────────────────────────
   if (!attachments.length) {
     if (translatedText) {
-      console.log(`[bridge] DC→TG | pair=${pair.id} | text | from="${senderName}"`);
-      await sendToTelegram(pair.telegramChatId, senderName, translatedText);
+      console.log(`[bridge] DC→TG | pair=${pair.id} | text | from="${displayName}"`);
+      await sendToTelegram(pair.telegramChatId, displayName, translatedText);
     }
     return;
   }
@@ -153,7 +162,7 @@ async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, a
 
     const buffer = await downloadUrl(att.url, DISCORD_MAX_BYTES);
     if (!buffer) {
-      await sendToTelegram(pair.telegramChatId, senderName, `[Could not download: ${att.name}]`);
+      await sendToTelegram(pair.telegramChatId, displayName, `[Could not download: ${att.name}]`);
       captionUsed = true; // don't repeat error + text
       continue;
     }
@@ -162,8 +171,8 @@ async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, a
     const caption = !captionUsed ? translatedText : null;
     captionUsed = true;
 
-    console.log(`[bridge] DC→TG | pair=${pair.id} | category=${category} | from="${senderName}"`);
-    await sendToTelegram(pair.telegramChatId, senderName, caption, {
+    console.log(`[bridge] DC→TG | pair=${pair.id} | category=${category} | from="${displayName}"`);
+    await sendToTelegram(pair.telegramChatId, displayName, caption, {
       buffer,
       mimeType: att.contentType || 'application/octet-stream',
       fileName: att.name
@@ -172,7 +181,7 @@ async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, a
 
   // All attachments were blocked → still send text if present
   if (!captionUsed && translatedText) {
-    await sendToTelegram(pair.telegramChatId, senderName, translatedText);
+    await sendToTelegram(pair.telegramChatId, displayName, translatedText);
   }
 }
 

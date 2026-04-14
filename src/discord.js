@@ -40,12 +40,23 @@ export function startDiscord(onMessage) {
 
     if (!text && attachments.length === 0) return;
 
+    // Collect the member's roles (exclude @everyone, sort by position desc)
+    const roles = message.member?.roles.cache
+      .filter(r => r.id !== message.guild.id)
+      .map(r => ({ id: r.id, name: r.name }))
+      .sort((a, b) => {
+        const ra = message.guild.roles.cache.get(a.id);
+        const rb = message.guild.roles.cache.get(b.id);
+        return (rb?.position ?? 0) - (ra?.position ?? 0);
+      }) ?? [];
+
     onMessage({
       channelId:   String(message.channel.id),
       senderName:  message.member?.displayName || message.author.username,
       avatarUrl:   message.author.displayAvatarURL({ size: 128, extension: 'png' }),
       text,
-      attachments
+      attachments,
+      roles
     });
   });
 
@@ -91,6 +102,32 @@ async function sendText(webhookUrl, username, avatarUrl, text) {
   });
 
   if (!res.ok) console.error(`[discord] Webhook text error ${res.status}:`, await res.text());
+}
+
+/**
+ * Return all non-managed, non-everyone roles for the guild that owns channelId.
+ * Sorted by position descending (highest-ranked role first).
+ *
+ * @param {string} channelId
+ * @returns {Promise<Array<{id:string, name:string, color:string}>>}
+ */
+export async function getGuildRoles(channelId) {
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel?.guild) return [];
+    await channel.guild.roles.fetch();
+    return channel.guild.roles.cache
+      .filter(r => r.id !== channel.guild.id && !r.managed)
+      .map(r => ({ id: r.id, name: r.name, color: r.hexColor }))
+      .sort((a, b) => {
+        const ra = channel.guild.roles.cache.get(a.id);
+        const rb = channel.guild.roles.cache.get(b.id);
+        return (rb?.position ?? 0) - (ra?.position ?? 0);
+      });
+  } catch (err) {
+    console.error('[discord] getGuildRoles error:', err.message);
+    return [];
+  }
 }
 
 async function sendWithFile(webhookUrl, username, avatarUrl, text, { buffer, mimeType, fileName }) {
