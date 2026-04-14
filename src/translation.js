@@ -248,27 +248,57 @@ const PROVIDERS = {
   microsoft:      translateMicrosoft
 };
 
-/**
- * Translate text to targetLanguage using the given provider.
- * Returns original text on failure.
- *
- * @param {string} text
- * @param {string} targetLanguage  e.g. "English", "German"
- * @param {string} provider
- * @returns {Promise<string>}
- */
-export async function translate(text, targetLanguage, provider = 'anthropic') {
-  if (!text?.trim()) return text;
+// ── Exhaustion tracking ───────────────────────────────────────────────────────
+// Providers that have hit their quota are stored here in-memory.
+// They are skipped for all subsequent translations until manually reset.
 
-  const fn = PROVIDERS[provider];
-  if (!fn) {
-    console.warn(`[translation] Unknown provider "${provider}", skipping.`);
-    return text;
+const exhaustedProviders = new Set();
+
+export function getExhaustedProviders() {
+  return [...exhaustedProviders];
+}
+
+export function resetExhausted(provider) {
+  if (provider) {
+    exhaustedProviders.delete(provider);
+    console.log(`[translation] Exhaustion reset for: ${provider}`);
+  } else {
+    exhaustedProviders.clear();
+    console.log('[translation] Exhaustion reset for all providers');
   }
+}
 
+/**
+ * Returns true if the error signals a permanent quota/character-limit exhaustion
+ * (as opposed to a transient network or auth error).
+ */
+function isQuotaError(err) {
+  const msg = (err.message || '').toLowerCase();
+  return (
+    msg.includes(' 456:')             ||  // DeepL character quota exceeded
+    msg.includes('quota')             ||
+    msg.includes('limit exceeded')    ||
+    msg.includes('character limit')   ||
+    msg.includes('insufficient_quota')||
+    msg.includes('insufficient quota')||
+    msg.match(/ 429:/) !== null           // rate-limit → treat as quota
+  );
+}
+
+// ── Internal: single provider, throws on any error ───────────────────────────
+
+async function translateProvider(text, targetLanguage, provider) {
+  if (!text?.trim()) return text;
+  const fn = PROVIDERS[provider];
+  if (!fn) throw new Error(`Unknown provider: ${provider}`);
+  return (await fn(text, targetLanguage)) || text;
+}
+
+// ── Public: single provider with catch (backward compat) ─────────────────────
+
+export async function translate(text, targetLanguage, provider = 'anthropic') {
   try {
-    const result = await fn(text, targetLanguage);
-    return result || text;
+    return await translateProvider(text, targetLanguage, provider);
   } catch (err) {
     console.error(`[translation] ${provider} error: ${err.message}`);
     return text;
@@ -276,25 +306,58 @@ export async function translate(text, targetLanguage, provider = 'anthropic') {
 }
 
 /**
- * Apply translation based on a pair's translation config.
+ * Apply translation with automatic fallback chain.
  *
- * @param {string} text
- * @param {object} translationConfig  pair.translation
+ * Tries the pair's primary provider first, then each provider in fallbackChain
+ * in order.  When a provider returns a quota/limit error it is marked exhausted
+ * and skipped for all future calls until resetExhausted() is called.
+ * The special value 'none' in the chain means "stop and return original text".
+ *
+ * @param {string}   text
+ * @param {object}   translationConfig  pair.translation
  * @param {'tgToDiscord'|'discordToTg'} direction
+ * @param {string[]} fallbackChain  ordered list from store.getTranslationChain()
  * @returns {Promise<string>}
  */
-export async function maybeTranslate(text, translationConfig, direction) {
+export async function maybeTranslate(text, translationConfig, direction, fallbackChain = []) {
   if (process.env.TRANSLATION_ENABLED === 'false') return text;
   if (!translationConfig?.enabled) return text;
 
   const dir = translationConfig[direction];
   if (!dir?.enabled) return text;
 
-  return translate(
-    text,
-    dir.targetLanguage || 'English',
-    translationConfig.provider || 'anthropic'
-  );
+  const targetLanguage  = dir.targetLanguage || 'English';
+  const primaryProvider = translationConfig.provider || 'anthropic';
+
+  // Build deduplicated chain: primary first, then fallbacks
+  const seen  = new Set();
+  const chain = [];
+  for (const p of [primaryProvider, ...fallbackChain]) {
+    if (!seen.has(p)) { seen.add(p); chain.push(p); }
+  }
+
+  for (const provider of chain) {
+    if (provider === 'none') return text; // explicit pass-through entry
+
+    if (exhaustedProviders.has(provider)) {
+      console.log(`[translation] Skipping exhausted provider: ${provider}`);
+      continue;
+    }
+
+    try {
+      return await translateProvider(text, targetLanguage, provider);
+    } catch (err) {
+      if (isQuotaError(err)) {
+        exhaustedProviders.add(provider);
+        console.warn(`[translation] ${provider} quota reached — switching to next provider`);
+        continue;
+      }
+      console.error(`[translation] ${provider} error: ${err.message}`);
+      continue; // non-quota errors also try next provider
+    }
+  }
+
+  return text; // all providers exhausted or chain ended
 }
 
 /**

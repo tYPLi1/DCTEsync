@@ -66,6 +66,22 @@ export function removePair(id) {
   return config.pairs.length < before;
 }
 
+// ── Translation fallback chain ────────────────────────────────────────────────
+
+/**
+ * Returns the ordered list of providers to try for translation.
+ * An empty array means "use only the pair's primary provider, no fallback".
+ */
+export function getTranslationChain() {
+  return read().translationChain ?? [];
+}
+
+export function setTranslationChain(chain) {
+  const config = read();
+  config.translationChain = chain;
+  write(config);
+}
+
 /**
  * Default translation config applied to every new pair.
  * Translation is OFF by default; the user explicitly enables it per pair.

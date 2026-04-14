@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC } from './store.js';
-import { getProviderStatus } from './translation.js';
+import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, getTranslationChain, setTranslationChain } from './store.js';
+import { getProviderStatus, getExhaustedProviders, resetExhausted } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
 
@@ -342,12 +342,56 @@ export function startWeb() {
     res.json({ ok: true, displayRoles: roleIds });
   });
 
+  // ── GET /api/translation-chain ───────────────────────────────────────────
+  // Returns the current fallback chain and exhaustion state per provider.
+  app.get('/api/translation-chain', (_req, res) => {
+    res.json({
+      chain:     getTranslationChain(),
+      exhausted: getExhaustedProviders()
+    });
+  });
+
+  // ── POST /api/translation-chain ──────────────────────────────────────────
+  // Replace the fallback chain. Body: { chain: ["deepl", "google", "none"] }
+  app.post('/api/translation-chain', (req, res) => {
+    const { chain } = req.body;
+    if (!Array.isArray(chain)) {
+      return res.status(400).json({ error: 'chain must be an array.' });
+    }
+    const VALID = new Set(['anthropic','openai','ollama','google','deepl','libretranslate','microsoft','none']);
+    const invalid = chain.filter(p => !VALID.has(p));
+    if (invalid.length) {
+      return res.status(400).json({ error: `Unknown providers: ${invalid.join(', ')}` });
+    }
+    setTranslationChain(chain);
+    console.log(`[web] Translation chain updated: [${chain.join(', ')}]`);
+    res.json({ ok: true, chain });
+  });
+
+  // ── DELETE /api/translation-chain/exhausted ──────────────────────────────
+  // Reset all exhausted providers.
+  app.delete('/api/translation-chain/exhausted', (_req, res) => {
+    resetExhausted();
+    console.log('[web] All exhausted providers reset');
+    res.json({ ok: true });
+  });
+
+  // ── DELETE /api/translation-chain/exhausted/:provider ───────────────────
+  // Reset a single exhausted provider.
+  app.delete('/api/translation-chain/exhausted/:provider', (req, res) => {
+    resetExhausted(req.params.provider);
+    console.log(`[web] Exhausted provider reset: ${req.params.provider}`);
+    res.json({ ok: true, provider: req.params.provider });
+  });
+
   // ── GET /api/status ───────────────────────────────────────────────────────
   app.get('/api/status', (_req, res) => {
     res.json({
       uptime:               process.uptime(),
       pairs:                getPairs().length,
-      translationProviders: getProviderStatus()
+      translationProviders: getProviderStatus(),
+      translationChain:     getTranslationChain(),
+      exhaustedProviders:   getExhaustedProviders()
     });
   });
 

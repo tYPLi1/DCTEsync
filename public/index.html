@@ -491,6 +491,45 @@
     }
     .service-status-active   { color: var(--success); font-size: 0.8rem; font-weight: 600; }
     .service-status-inactive { color: var(--muted);   font-size: 0.8rem; font-weight: 600; }
+
+    /* ── TRANSLATION CHAIN ──────────────────────────────────────────── */
+    .chain-list { display: flex; flex-direction: column; gap: 6px; margin-bottom: 12px; min-height: 24px; }
+    .chain-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 10px;
+      font-size: 0.82rem;
+    }
+    .chain-item-label { flex: 1; }
+    .chain-badge {
+      font-size: 0.7rem;
+      font-weight: 600;
+      padding: 2px 7px;
+      border-radius: 4px;
+      flex-shrink: 0;
+    }
+    .chain-badge.ok     { background: rgba(87,242,135,.12); color: var(--success); }
+    .chain-badge.warn   { background: rgba(254,231,92,.1);  color: var(--warn); }
+    .chain-badge.danger { background: rgba(237,66,69,.12);  color: var(--danger); }
+    .chain-badge.muted  { background: var(--surface2);      color: var(--muted); }
+    .chain-controls { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .btn-chain {
+      background: var(--surface2);
+      color: var(--muted);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 3px 8px;
+      font-size: 0.75rem;
+      cursor: pointer;
+      font-weight: 500;
+    }
+    .btn-chain:hover { color: var(--text); border-color: var(--accent); opacity: 1; }
+    .btn-chain.danger:hover { color: var(--danger); border-color: var(--danger); }
+    .btn-chain:disabled { opacity: 0.3; cursor: not-allowed; }
   </style>
 </head>
 <body>
@@ -645,6 +684,21 @@
           <button type="submit" class="btn-primary">Save Settings</button>
         </div>
       </form>
+
+      <!-- Translation chain — uses /api/translation-chain, not the .env form -->
+      <hr style="border:none;border-top:1px solid var(--border);margin:24px 0 18px">
+      <div class="settings-section" id="chain-section">
+        <h3>Translation Fallback-Kette</h3>
+        <p class="settings-hint">Reihenfolge der Übersetzungs-Anbieter. Wenn ein Anbieter sein Limit erreicht oder ausfällt, wird der nächste in der Kette versucht. <em>Keine Übersetzung</em> stoppt die Kette ohne Übersetzung. Die Kette gilt global für alle Verbindungen und ist sofort wirksam.</p>
+        <div id="chain-list" class="chain-list">
+          <span style="font-size:0.8rem;color:var(--muted)">Lädt…</span>
+        </div>
+        <div class="chain-controls">
+          <select id="chain-add-select" style="font-size:0.8rem;padding:5px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:6px;color:var(--text);outline:none;"></select>
+          <button type="button" class="btn-chain" onclick="addChainEntry()">+ Hinzufügen</button>
+          <button type="button" class="btn-chain danger" id="chain-reset-btn" style="margin-left:auto;display:none" onclick="resetAllExhausted()">Reset alle Erschöpften</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1513,6 +1567,9 @@ async function loadSettings() {
     if (cfg['DEEPL_API_KEY']) loadDeepLUsage();
     else { const w = document.getElementById('deepl-usage'); if (w) w.style.display = 'none'; }
 
+    // Load translation fallback chain
+    loadTranslationChain();
+
   } catch (err) {
     showToast('Could not load settings: ' + err.message, 'error');
   }
@@ -1547,6 +1604,177 @@ document.getElementById('settings-form').addEventListener('submit', async (e) =>
     showToast('Save failed: ' + err.message, 'error');
   }
 });
+
+// ── Translation chain ─────────────────────────────────────────────────────────
+
+let _chainData = { chain: [], exhausted: [] };
+
+const CHAIN_PROVIDERS = [
+  ...PROVIDERS.map(p => ({ id: p.id, label: p.label })),
+  { id: 'none', label: '— Keine Übersetzung (Stopp)' }
+];
+
+async function loadTranslationChain() {
+  try {
+    const data = await api('GET', '/api/translation-chain');
+    _chainData = data;
+    renderChainList(data.chain, data.exhausted);
+    const sel = document.getElementById('chain-add-select');
+    if (sel && !sel.children.length) {
+      for (const p of CHAIN_PROVIDERS) {
+        const opt = document.createElement('option');
+        opt.value = p.id;
+        opt.textContent = p.label;
+        sel.appendChild(opt);
+      }
+    }
+    const resetBtn = document.getElementById('chain-reset-btn');
+    if (resetBtn) resetBtn.style.display = data.exhausted.length ? '' : 'none';
+  } catch (err) {
+    const list = document.getElementById('chain-list');
+    if (list) list.innerHTML = `<span style="font-size:0.8rem;color:var(--danger)">Fehler: ${err.message}</span>`;
+  }
+}
+
+function renderChainList(chain, exhausted) {
+  const list = document.getElementById('chain-list');
+  if (!list) return;
+  list.innerHTML = '';
+  const status = window._providerStatus ?? {};
+  const exhaustedSet = new Set(exhausted);
+
+  if (!chain.length) {
+    const empty = document.createElement('p');
+    empty.style.cssText = 'font-size:0.8rem;color:var(--muted);margin:0';
+    empty.textContent = 'Keine Fallback-Kette konfiguriert — es wird nur der primäre Anbieter jeder Verbindung genutzt.';
+    list.appendChild(empty);
+    return;
+  }
+
+  chain.forEach((provider, idx) => {
+    const item = document.createElement('div');
+    item.className = 'chain-item';
+
+    const num = document.createElement('span');
+    num.style.cssText = 'color:var(--muted);font-size:0.75rem;min-width:16px;flex-shrink:0';
+    num.textContent = `${idx + 1}.`;
+    item.appendChild(num);
+
+    const lbl = document.createElement('span');
+    lbl.className = 'chain-item-label';
+    const provInfo = CHAIN_PROVIDERS.find(p => p.id === provider);
+    lbl.textContent = provInfo ? provInfo.label : provider;
+    item.appendChild(lbl);
+
+    // Status badge
+    const badge = document.createElement('span');
+    badge.className = 'chain-badge';
+    if (provider === 'none') {
+      badge.classList.add('muted');
+      badge.textContent = 'Stopp';
+      item.appendChild(badge);
+    } else if (exhaustedSet.has(provider)) {
+      badge.classList.add('danger');
+      badge.textContent = 'Erschöpft';
+      item.appendChild(badge);
+      const resetOne = document.createElement('button');
+      resetOne.type = 'button';
+      resetOne.className = 'btn-chain';
+      resetOne.textContent = 'Reset';
+      resetOne.addEventListener('click', () => resetExhaustedProvider(provider));
+      item.appendChild(resetOne);
+    } else if (status[provider] === false) {
+      badge.classList.add('warn');
+      badge.textContent = 'Kein Key';
+      item.appendChild(badge);
+    } else {
+      badge.classList.add('ok');
+      badge.textContent = 'Bereit';
+      item.appendChild(badge);
+    }
+
+    // Reorder / remove buttons
+    const upBtn = document.createElement('button');
+    upBtn.type = 'button';
+    upBtn.className = 'btn-chain';
+    upBtn.textContent = '▲';
+    upBtn.title = 'Nach oben';
+    upBtn.disabled = idx === 0;
+    upBtn.addEventListener('click', () => {
+      const c = [..._chainData.chain];
+      [c[idx - 1], c[idx]] = [c[idx], c[idx - 1]];
+      saveChain(c);
+    });
+
+    const downBtn = document.createElement('button');
+    downBtn.type = 'button';
+    downBtn.className = 'btn-chain';
+    downBtn.textContent = '▼';
+    downBtn.title = 'Nach unten';
+    downBtn.disabled = idx === chain.length - 1;
+    downBtn.addEventListener('click', () => {
+      const c = [..._chainData.chain];
+      [c[idx], c[idx + 1]] = [c[idx + 1], c[idx]];
+      saveChain(c);
+    });
+
+    const rmBtn = document.createElement('button');
+    rmBtn.type = 'button';
+    rmBtn.className = 'btn-chain danger';
+    rmBtn.textContent = '✕';
+    rmBtn.title = 'Entfernen';
+    rmBtn.addEventListener('click', () => {
+      const c = _chainData.chain.filter((_, i) => i !== idx);
+      saveChain(c);
+    });
+
+    item.append(upBtn, downBtn, rmBtn);
+    list.appendChild(item);
+  });
+}
+
+async function addChainEntry() {
+  const sel = document.getElementById('chain-add-select');
+  if (!sel) return;
+  const newChain = [..._chainData.chain, sel.value];
+  await saveChain(newChain);
+}
+
+async function saveChain(chain) {
+  try {
+    const data = await api('POST', '/api/translation-chain', { chain });
+    _chainData = { ..._chainData, chain: data.chain };
+    renderChainList(_chainData.chain, _chainData.exhausted);
+  } catch (err) {
+    showToast(`Fehler: ${err.message}`, 'error');
+  }
+}
+
+async function resetAllExhausted() {
+  try {
+    await api('DELETE', '/api/translation-chain/exhausted');
+    _chainData = { ..._chainData, exhausted: [] };
+    renderChainList(_chainData.chain, _chainData.exhausted);
+    const resetBtn = document.getElementById('chain-reset-btn');
+    if (resetBtn) resetBtn.style.display = 'none';
+    showToast('Alle erschöpften Anbieter zurückgesetzt.', 'ok');
+  } catch (err) {
+    showToast(`Fehler: ${err.message}`, 'error');
+  }
+}
+
+async function resetExhaustedProvider(provider) {
+  try {
+    await api('DELETE', `/api/translation-chain/exhausted/${provider}`);
+    _chainData = { ..._chainData, exhausted: _chainData.exhausted.filter(p => p !== provider) };
+    renderChainList(_chainData.chain, _chainData.exhausted);
+    const resetBtn = document.getElementById('chain-reset-btn');
+    if (resetBtn) resetBtn.style.display = _chainData.exhausted.length ? '' : 'none';
+    showToast(`${provider} zurückgesetzt.`, 'ok');
+  } catch (err) {
+    showToast(`Fehler: ${err.message}`, 'error');
+  }
+}
 
 // ── Init ─────────────────────────────────────────────────────────────────────
 
