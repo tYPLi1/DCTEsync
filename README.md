@@ -237,6 +237,31 @@ LIBRETRANSLATE_URL=http://localhost:5000
 
 ---
 
+## Updating
+
+To pull the latest changes, reinstall dependencies and restart the service, just run:
+
+```bash
+bash update.sh
+```
+
+The script:
+
+- Stashes any local modifications (so `.env` and `data/config.json` stay safe)
+- Switches to the repository's default branch and `git pull`s
+- Runs `npm install --omit=dev` for new dependencies
+- Restarts `tg-bridge` via systemd (if installed)
+- Restores your stashed changes afterwards
+
+If you run the bridge via Docker, update with:
+
+```bash
+git pull
+docker compose up -d --build
+```
+
+---
+
 ## Useful Commands (LXC / systemd)
 
 ```bash
