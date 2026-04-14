@@ -21,14 +21,57 @@ if [ ! -d .git ]; then
   exit 1
 fi
 
-# ── Remember current branch so we can restore it if the user was on a custom one
-CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
-TARGET_BRANCH="$(git remote show origin | awk '/HEAD branch/ {print $NF}')"
-
-if [ -z "$TARGET_BRANCH" ] || [ "$TARGET_BRANCH" = "(unknown)" ]; then
-  # Fallback to the known default branch name
-  TARGET_BRANCH="claude/telegram-discord-bridge-bUm5a"
+# ── Determine default branch (remote HEAD) ───────────────────────────────────
+DEFAULT_BRANCH="$(git remote show origin 2>/dev/null | awk '/HEAD branch/ {print $NF}')"
+if [ -z "$DEFAULT_BRANCH" ] || [ "$DEFAULT_BRANCH" = "(unknown)" ]; then
+  DEFAULT_BRANCH="claude/telegram-discord-bridge-bUm5a"
 fi
+
+# ── Parse arguments ───────────────────────────────────────────────────────────
+# Supports:
+#   ./update.sh                         → interactive prompt (Enter = default)
+#   ./update.sh <branch>                → positional argument
+#   ./update.sh --branch <branch>       → named flag
+#   ./update.sh -b <branch>             → short flag
+TARGET_BRANCH=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --branch|-b)
+      shift
+      TARGET_BRANCH="$1"
+      ;;
+    --branch=*)
+      TARGET_BRANCH="${1#--branch=}"
+      ;;
+    -*)
+      echo -e "${RED}✗ Unknown flag: $1${RESET}"
+      echo -e "  Usage: ./update.sh [--branch <name>] [<branch>]"
+      exit 1
+      ;;
+    *)
+      TARGET_BRANCH="$1"
+      ;;
+  esac
+  shift
+done
+
+# ── Interactive prompt when no branch was specified ───────────────────────────
+if [ -z "$TARGET_BRANCH" ]; then
+  REMOTE_BRANCHES="$(git ls-remote --heads origin 2>/dev/null | awk '{sub("refs/heads/",""); print $2}')"
+  if [ -n "$REMOTE_BRANCHES" ]; then
+    echo -e "${BOLD}Available branches:${RESET}"
+    echo "$REMOTE_BRANCHES" | while IFS= read -r b; do
+      echo -e "  ${CYAN}${b}${RESET}"
+    done
+    echo ""
+  fi
+  printf "Branch to update to [%s]: " "${DEFAULT_BRANCH}"
+  read -r USER_BRANCH
+  TARGET_BRANCH="${USER_BRANCH:-$DEFAULT_BRANCH}"
+fi
+
+# ── Remember current branch ───────────────────────────────────────────────────
+CURRENT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"
 
 echo -e "  Current branch: ${CYAN}${CURRENT_BRANCH}${RESET}"
 echo -e "  Target branch:  ${CYAN}${TARGET_BRANCH}${RESET}"
