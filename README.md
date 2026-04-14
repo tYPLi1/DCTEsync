@@ -1,6 +1,6 @@
 # Telegram ↔ Discord Bridge
 
-A self-hosted bridge bot that syncs messages between Telegram groups and Discord channels — in both directions, in real time, with optional AI-powered translation.
+A self-hosted bridge bot that syncs messages between Telegram groups and Discord channels — in both directions, in real time, with full media support and optional AI-powered translation.
 
 ---
 
@@ -8,11 +8,51 @@ A self-hosted bridge bot that syncs messages between Telegram groups and Discord
 
 - **Multi-pair sync** — link as many Telegram groups ↔ Discord channels as you want, each pair is independent
 - **Telegram → Discord** — messages appear with the sender's Telegram name and profile picture (via Discord webhook), looks completely native
-- **Discord → Telegram** — messages are forwarded as `[Username]: text`
+- **Discord → Telegram** — messages are forwarded as `[Username]: text` or `[Username]:` + media
+- **Full media support** — photos, videos, audio, voice, documents, stickers, GIFs, video notes, locations, polls
+- **Per-type media toggles** — enable/disable each media type independently per pair and per direction in the dashboard
 - **Loop prevention** — webhook and bot messages are automatically ignored on both sides
-- **Web dashboard** — manage all pairs and translation settings at `http://your-host:PORT`
+- **Web dashboard** — manage all pairs, translation and media settings at `http://your-host:PORT`
 - **AI translation** — 7 providers, per pair, per direction, disabled by default
 - **Docker + LXC ready** — works in Docker, docker-compose, or directly in a Proxmox LXC container
+
+---
+
+## Media Support
+
+### Telegram → Discord
+
+| Type | Forwarded as |
+|---|---|
+| Photos | Image attachment |
+| Videos | Video attachment |
+| Audio files | Audio attachment |
+| Voice messages | Audio attachment (OGG) |
+| Documents / files | File attachment |
+| Stickers (static WebP) | Image attachment |
+| Stickers (video WebM) | Video attachment |
+| Stickers (animated TGS) | Text: `[Sticker 😄]` |
+| Animations / GIFs | Video attachment |
+| Video notes (round) | Video attachment |
+| Locations | Text: 📍 Google Maps link |
+| Polls | Formatted text with options |
+
+### Discord → Telegram
+
+| Attachment type | Forwarded as |
+|---|---|
+| Images (jpg, png, webp…) | Telegram photo |
+| GIFs | Telegram animation |
+| Videos (mp4, webm…) | Telegram video |
+| Voice (ogg/oga) | Telegram voice message |
+| Other audio | Telegram audio |
+| Documents / other files | Telegram document |
+
+> Files larger than **25 MB** cannot be uploaded to Discord webhooks.
+> Files larger than **20 MB** cannot be downloaded via the Telegram Bot API.
+> Oversized files are replaced with a text notice.
+
+Each type can be toggled on/off **per pair** and **per direction** in the dashboard — no restart needed.
 
 ---
 
@@ -123,14 +163,17 @@ Open `http://your-host:PORT` after starting the bridge.
 - Enter a label (optional), Telegram Chat ID, Discord Channel ID and Discord Webhook URL
 - Click **Add Pair**
 
-**Configure translation per pair:**
-- Click the **Translation** button on any pair
+**Configure media sync per pair** (click **Media** button):
+- **TG → Discord**: toggle each Telegram type individually — photos, videos, audio, voice, documents, stickers, animations, video notes, locations, polls
+- **DC → Telegram**: toggle by category — images, videos, audio, documents
+- All changes save instantly, no restart needed
+
+**Configure translation per pair** (click **Translation** button):
 - Toggle the master switch to enable translation for this pair
 - Enable each direction independently (`Telegram → Discord` and `Discord → Telegram`)
 - Select the target language for each direction
 - Choose the AI provider from the dropdown
-
-All changes save instantly — no restart needed.
+- All changes save instantly, no restart needed
 
 ---
 
@@ -191,8 +234,9 @@ sudo systemctl stop tg-bridge       # stop
 ```
 ├── src/
 │   ├── bridge.js        # Entry point — wires everything together
-│   ├── telegram.js      # Telegraf bot (receive + send)
-│   ├── discord.js       # Discord.js bot + webhook sender
+│   ├── telegram.js      # Telegraf bot (receive + send all media types)
+│   ├── discord.js       # Discord.js bot + webhook sender (with file upload)
+│   ├── media.js         # Download helpers, MIME classification
 │   ├── translation.js   # 7-provider translation module
 │   ├── store.js         # JSON config read/write
 │   └── web.js           # Express dashboard + REST API
@@ -208,7 +252,10 @@ sudo systemctl stop tg-bridge       # stop
 
 ---
 
-## Limitations
+## Known Limitations
 
-- **Discord → Telegram**: Telegram does not allow bots to impersonate other users. Messages are sent as the bot with a `[Username]:` prefix. This is a Telegram API restriction — a userbot would be required to bypass it.
-- **Media**: Only text messages and captions are bridged. Stickers, voice messages and media-only messages are currently skipped.
+- **Discord → Telegram identity**: Telegram does not allow bots to impersonate users. Messages always arrive as the bot with a `[Username]:` prefix. A Telegram userbot would be required to bypass this.
+- **Animated stickers (TGS/Lottie)**: Cannot be rendered by Discord. Forwarded as `[Sticker 😄]` text instead.
+- **File size limits**: 20 MB (Telegram Bot API download) and 25 MB (Discord webhook upload). Larger files are skipped with a notice.
+- **Media groups / albums**: Each photo in a Telegram album is forwarded as a separate message.
+- **Discord embeds**: Tenor GIFs, YouTube previews and other link embeds are not forwarded (no attachment data available).
