@@ -76,9 +76,66 @@ done
 
 # ── Port ─────────────────────────────────────────────────────────────────────
 
+# Returns 0 (true) if the given port is already in use on this machine.
+port_in_use() {
+  local p="$1"
+  # Primary: read kernel TCP tables — works on every Linux without extra tools
+  local hex
+  hex=$(printf '%04X' "$p")
+  if grep -q ":${hex} " /proc/net/tcp 2>/dev/null || \
+     grep -q ":${hex} " /proc/net/tcp6 2>/dev/null; then
+    return 0
+  fi
+  # Fallback: ss (iproute2)
+  if command -v ss &>/dev/null; then
+    ss -tlnp 2>/dev/null | grep -qE ":${p}[^0-9]"
+    return $?
+  fi
+  # Fallback: netstat
+  if command -v netstat &>/dev/null; then
+    netstat -tlnp 2>/dev/null | grep -qE ":${p}[^0-9]"
+    return $?
+  fi
+  return 1  # can't detect — assume free
+}
+
 echo ""
 echo -e "${BOLD}── Web Dashboard ────────────────────────────${RESET}"
-PORT=$(ask "Dashboard port" "3000")
+echo ""
+
+CANDIDATES=(3000 3001 4000 5000 8080 8443 9000)
+FIRST_FREE=""
+
+echo -e "  Port availability:"
+for p in "${CANDIDATES[@]}"; do
+  if port_in_use "$p"; then
+    echo -e "    ${RED}✗${RESET}  $p  ${RED}(already in use)${RESET}"
+  else
+    echo -e "    ${GREEN}✓${RESET}  $p  ${GREEN}(free)${RESET}"
+    [ -z "$FIRST_FREE" ] && FIRST_FREE="$p"
+  fi
+done
+echo ""
+
+DEFAULT_PORT="${FIRST_FREE:-3000}"
+PORT=$(ask "Dashboard port" "$DEFAULT_PORT")
+
+# Validate: must be a number between 1–65535
+while true; do
+  if [[ ! "$PORT" =~ ^[0-9]+$ ]] || [ "$PORT" -lt 1 ] || [ "$PORT" -gt 65535 ]; then
+    echo -e "${RED}  ✗ Invalid port. Please enter a number between 1 and 65535.${RESET}"
+    PORT=$(ask "Dashboard port" "$DEFAULT_PORT")
+  elif port_in_use "$PORT"; then
+    echo -e "${YELLOW}  ⚠ Port $PORT is already in use on this machine.${RESET}"
+    if confirm "  Use port $PORT anyway?"; then
+      break
+    fi
+    PORT=$(ask "Dashboard port" "$DEFAULT_PORT")
+  else
+    echo -e "${GREEN}  ✓ Port $PORT is free.${RESET}"
+    break
+  fi
+done
 
 # ── Translation (optional) ────────────────────────────────────────────────────
 

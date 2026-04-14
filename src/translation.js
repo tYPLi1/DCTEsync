@@ -72,9 +72,18 @@ async function translateAnthropic(text, targetLanguage) {
   const response = await anthropicClient.messages.create({
     model: 'claude-haiku-4-5-20251001',
     max_tokens: 1024,
+    // System prompt is marked for prompt caching — it is reused across many
+    // translation calls, so caching it reduces latency and token costs.
+    system: [
+      {
+        type: 'text',
+        text: 'You are a translation assistant. Translate the user\'s message to the requested target language accurately and naturally. Return ONLY the translated text — no commentary, explanations, or quotation marks.',
+        cache_control: { type: 'ephemeral' }
+      }
+    ],
     messages: [{
       role: 'user',
-      content: `Translate the following message to ${targetLanguage}. Return ONLY the translated text.\n\n${text}`
+      content: `Translate to ${targetLanguage}:\n\n${text}`
     }]
   });
 

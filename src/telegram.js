@@ -109,7 +109,7 @@ export function startTelegram(onMessage) {
     if (!text && !media) return; // nothing to forward
 
     const avatarUrl = await getAvatarUrl(sender.id);
-    onMessage({ chatId, senderName, avatarUrl, text, media });
+    await onMessage({ chatId, senderName, avatarUrl, text, media });
   });
 
   bot.launch()
