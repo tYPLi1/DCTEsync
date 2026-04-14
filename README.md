@@ -81,7 +81,7 @@ The Anthropic provider uses **prompt caching** — the translation instruction i
 
 ```bash
 git clone https://github.com/typli1/dctesync
-cd dctesync
+cd DCTEsync
 cp .env.example .env
 nano .env          # fill in TELEGRAM_TOKEN and DISCORD_TOKEN
 docker compose up -d
@@ -108,6 +108,7 @@ apt install -y nodejs
 
 git clone https://github.com/typli1/dctesync /opt/bridge
 cd /opt/bridge
+# (always clones the latest version automatically)
 ```
 
 **3. Run the interactive setup**
@@ -239,23 +240,25 @@ LIBRETRANSLATE_URL=http://localhost:5000
 
 ## Updating
 
-To pull the latest changes, reinstall dependencies and restart the service, just run:
+### LXC / systemd
+
+Run this from the directory where you cloned the bridge:
 
 ```bash
 bash update.sh
 ```
 
-The script:
+The script does everything automatically:
 
-- Stashes any local modifications (so `.env` and `data/config.json` stay safe)
-- Switches to the repository's default branch and `git pull`s
-- Runs `npm install --omit=dev` to pull in any new dependencies
-- Runs `npm update --omit=dev` to update existing packages to the latest compatible versions (within the semver ranges in `package.json`, so no breaking major bumps)
-- Lists packages with new **major** versions available as a hint (not auto-installed)
-- Restarts `tg-bridge` via systemd (if installed)
-- Restores your stashed changes afterwards
+1. Stashes any local modifications (`.env` and `data/config.json` stay safe)
+2. Pulls the latest code from the repository
+3. `npm install` — installs any newly added dependencies
+4. `npm update` — upgrades all packages to their latest compatible version (patch + minor only, no breaking major bumps)
+5. Lists packages with new **major** versions available as an info hint
+6. Restarts `tg-bridge` via systemd
+7. Restores your local changes
 
-If you run the bridge via Docker, update with:
+### Docker
 
 ```bash
 git pull
@@ -291,6 +294,7 @@ sudo systemctl stop tg-bridge       # stop
 ├── data/
 │   └── config.json      # Auto-generated, stores all pairs
 ├── setup.sh             # Interactive first-run setup
+├── update.sh            # One-command updater (pull + deps + service restart)
 ├── .env.example         # All available env vars
 ├── Dockerfile
 └── docker-compose.yml
