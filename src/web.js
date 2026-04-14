@@ -6,6 +6,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC } from './store.js';
 import { getProviderStatus } from './translation.js';
 import { bot } from './telegram.js';
+import { getGuildRoles } from './discord.js';
 
 const ENV_PATH = resolve(process.cwd(), '.env');
 
@@ -191,6 +192,67 @@ export function startWeb() {
     res.status(201).json(pair);
   });
 
+  // ── PATCH /api/pairs/:id ──────────────────────────────────────────────────
+  // Update basic pair fields: label, telegramChatId, discordChannelId, discordWebhookUrl.
+  // Re-validates Telegram access whenever the chat ID changes.
+  app.patch('/api/pairs/:id', async (req, res) => {
+    const existing = getPairs().find(p => p.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Pair not found.' });
+
+    const { label, telegramChatId, discordChannelId, discordWebhookUrl } = req.body;
+    const updates = {};
+
+    if (label !== undefined)  updates.label = String(label);
+
+    if (discordWebhookUrl !== undefined && discordWebhookUrl !== existing.discordWebhookUrl) {
+      if (!discordWebhookUrl.startsWith('https://discord.com/api/webhooks/') &&
+          !discordWebhookUrl.startsWith('https://discordapp.com/api/webhooks/')) {
+        return res.status(400).json({ error: 'discordWebhookUrl must be a valid Discord webhook URL.' });
+      }
+      updates.discordWebhookUrl = discordWebhookUrl;
+    }
+
+    if (discordChannelId !== undefined && String(discordChannelId) !== existing.discordChannelId) {
+      updates.discordChannelId = String(discordChannelId);
+    }
+
+    if (telegramChatId !== undefined && String(telegramChatId) !== existing.telegramChatId) {
+      const newId = String(telegramChatId);
+      try {
+        const [me, chat] = await Promise.all([
+          bot.telegram.getMe(),
+          bot.telegram.getChat(newId)
+        ]);
+        const member  = await bot.telegram.getChatMember(newId, me.id);
+        const isAdmin = ['creator', 'administrator'].includes(member.status);
+        if (chat.type === 'channel') {
+          if (!isAdmin) return res.status(400).json({ error: 'Bot is not admin in this channel.' });
+        } else {
+          const privacyOff = me.can_read_all_group_messages === true;
+          if (!privacyOff && !isAdmin) {
+            return res.status(400).json({
+              error: 'Bot cannot read messages in this group. Make it admin or disable privacy mode.'
+            });
+          }
+        }
+      } catch (err) {
+        return res.status(400).json({
+          error: `Cannot access Telegram chat ${newId}: ${err?.response?.description ?? err.message}`
+        });
+      }
+      updates.telegramChatId = newId;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No changes provided.' });
+    }
+
+    updatePair(req.params.id, updates);
+    console.log(`[web] Pair updated: ${req.params.id} — ${Object.keys(updates).join(', ')}`);
+    const updated = getPairs().find(p => p.id === req.params.id);
+    res.json(updated);
+  });
+
   // ── DELETE /api/pairs/:id ──────────────────────────────────────────────────
   app.delete('/api/pairs/:id', (req, res) => {
     const removed = removePair(req.params.id);
@@ -229,6 +291,55 @@ export function startWeb() {
 
     console.log(`[web] MediaSync updated: ${req.params.id}`);
     res.json(merged);
+  });
+
+  // ── GET /api/deepl-usage ─────────────────────────────────────────────────
+  // Proxies the DeepL /v2/usage endpoint so the API key stays server-side.
+  app.get('/api/deepl-usage', async (req, res) => {
+    const key = process.env.DEEPL_API_KEY;
+    if (!key) return res.status(404).json({ error: 'DEEPL_API_KEY not configured.' });
+
+    // Free-tier keys end with ':fx' and use a different subdomain
+    const base = key.endsWith(':fx')
+      ? 'https://api-free.deepl.com'
+      : 'https://api.deepl.com';
+
+    try {
+      const r = await fetch(`${base}/v2/usage`, {
+        headers: { 'Authorization': `DeepL-Auth-Key ${key}` }
+      });
+      if (!r.ok) {
+        const msg = await r.text().catch(() => r.statusText);
+        return res.status(r.status).json({ error: `DeepL ${r.status}: ${msg}` });
+      }
+      res.json(await r.json());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
+  // ── GET /api/pairs/:id/discord-roles ─────────────────────────────────────
+  // Returns all selectable roles of the Discord guild linked to this pair.
+  app.get('/api/pairs/:id/discord-roles', async (req, res) => {
+    const pair = getPairs().find(p => p.id === req.params.id);
+    if (!pair) return res.status(404).json({ error: 'Pair not found.' });
+    const roles = await getGuildRoles(pair.discordChannelId);
+    res.json(roles);
+  });
+
+  // ── PATCH /api/pairs/:id/display-roles ───────────────────────────────────
+  // Update which Discord role IDs are appended to the sender name in Telegram.
+  // Body: { roleIds: ["123", "456"] }
+  app.patch('/api/pairs/:id/display-roles', (req, res) => {
+    const { roleIds } = req.body;
+    if (!Array.isArray(roleIds)) {
+      return res.status(400).json({ error: 'roleIds must be an array of role ID strings.' });
+    }
+    if (!updatePair(req.params.id, { displayRoles: roleIds })) {
+      return res.status(404).json({ error: 'Pair not found.' });
+    }
+    console.log(`[web] DisplayRoles updated: ${req.params.id} → [${roleIds.join(', ')}]`);
+    res.json({ ok: true, displayRoles: roleIds });
   });
 
   // ── GET /api/status ───────────────────────────────────────────────────────

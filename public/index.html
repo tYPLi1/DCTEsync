@@ -282,6 +282,55 @@
       margin-bottom: 4px;
     }
 
+    /* ── EDIT PANEL ──────────────────────────────────────────────────────── */
+    .edit-panel {
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+      padding: 16px 20px;
+      display: none;
+    }
+    .edit-panel.open { display: block; }
+    .edit-panel h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 14px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .edit-panel .form-grid { margin-bottom: 14px; }
+    .edit-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
+    /* ── ROLES PANEL ─────────────────────────────────────────────────────── */
+    .roles-panel {
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+      padding: 16px 20px;
+      display: none;
+    }
+    .roles-panel.open { display: block; }
+    .roles-panel h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .roles-hint { font-size: 0.75rem; color: var(--muted); margin-bottom: 14px; }
+    .roles-list { display: flex; flex-wrap: wrap; gap: 10px 24px; }
+    .role-color-dot {
+      width: 9px; height: 9px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      margin-right: 4px;
+    }
+
     /* ── EMPTY STATE ─────────────────────────────────────────────────────── */
     #empty-state {
       text-align: center;
@@ -400,6 +449,34 @@
     .btn-lock:hover { color: var(--text); border-color: var(--accent); opacity: 1; }
     .btn-lock.unlocked { color: var(--warn); border-color: var(--warn); }
     input[type="password"]:disabled { opacity: 0.55; cursor: not-allowed; }
+
+    /* ── API USAGE BAR ───────────────────────────────────────────────── */
+    .usage-wrap {
+      margin-top: 7px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .usage-bar {
+      height: 4px;
+      background: var(--border);
+      border-radius: 2px;
+      overflow: hidden;
+    }
+    .usage-bar-fill {
+      height: 100%;
+      background: var(--accent);
+      border-radius: 2px;
+      transition: width .5s ease;
+    }
+    .usage-bar-fill.warn   { background: var(--warn); }
+    .usage-bar-fill.danger { background: var(--danger); }
+    .usage-text {
+      font-size: 0.71rem;
+      color: var(--muted);
+      line-height: 1.4;
+    }
+    .usage-text .usage-note { opacity: 0.65; }
 
     /* ── SERVICE TOGGLE ROW ──────────────────────────────────────────── */
     .service-toggle-row {
@@ -529,6 +606,13 @@
               <div class="token-field">
                 <input type="password" id="s-deepl" name="DEEPL_API_KEY" autocomplete="off" disabled />
                 <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-deepl',this)">🔒</button>
+              </div>
+              <div id="deepl-usage" class="usage-wrap" style="display:none">
+                <div class="usage-bar"><div class="usage-bar-fill" id="deepl-usage-fill" style="width:0%"></div></div>
+                <span class="usage-text">
+                  <span id="deepl-usage-text"></span>
+                  <span class="usage-note"> · Daten bis einschl. gestriger UTC-Tag</span>
+                </span>
               </div>
             </div>
             <div class="form-group">
@@ -996,6 +1080,171 @@ function buildMediaPanel(pair) {
   return panel;
 }
 
+// ── Edit panel ────────────────────────────────────────────────────────────────
+
+function buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }) {
+  const panel = document.createElement('div');
+  panel.className = 'edit-panel';
+  panel.id = `edit-${pair.id}`;
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Verbindung bearbeiten';
+  panel.appendChild(heading);
+
+  const grid = document.createElement('div');
+  grid.className = 'form-grid';
+
+  function field(id, labelText, value, placeholder = '', wide = false) {
+    const g = document.createElement('div');
+    g.className = wide ? 'form-group wide' : 'form-group';
+    const lbl = document.createElement('label');
+    lbl.htmlFor = id;
+    lbl.textContent = labelText;
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.id = id;
+    inp.value = value || '';
+    inp.placeholder = placeholder;
+    g.appendChild(lbl);
+    g.appendChild(inp);
+    return { group: g, input: inp };
+  }
+
+  const { group: gLabel,  input: iLabel  } = field(`e-label-${pair.id}`,  'Label (optional)',      pair.label,             'z.B. General');
+  const { group: gTg,    input: iTg     } = field(`e-tg-${pair.id}`,     'Telegram Chat ID',      pair.telegramChatId,    '-1001234567890');
+  const { group: gDc,    input: iDc     } = field(`e-dc-${pair.id}`,     'Discord Channel ID',    pair.discordChannelId,  '123456789012345678');
+  const { group: gWh,    input: iWh     } = field(`e-wh-${pair.id}`,     'Discord Webhook URL',   pair.discordWebhookUrl, 'https://discord.com/api/webhooks/…', true);
+
+  grid.append(gLabel, gTg, gDc, gWh);
+  panel.appendChild(grid);
+
+  const footer = document.createElement('div');
+  footer.className = 'edit-footer';
+  const status = document.createElement('span');
+  status.className = 'save-status';
+  status.id = `edit-save-status-${pair.id}`;
+  status.textContent = '✓ Gespeichert';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-primary btn-sm';
+  saveBtn.textContent = 'Speichern';
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    try {
+      const body = {};
+      if (iLabel.value.trim() !== (pair.label || ''))          body.label            = iLabel.value.trim();
+      if (iTg.value.trim()    !== pair.telegramChatId)         body.telegramChatId   = iTg.value.trim();
+      if (iDc.value.trim()    !== pair.discordChannelId)       body.discordChannelId = iDc.value.trim();
+      if (iWh.value.trim()    !== pair.discordWebhookUrl)      body.discordWebhookUrl = iWh.value.trim();
+
+      if (!Object.keys(body).length) {
+        showToast('Keine Änderungen.', 'error');
+        return;
+      }
+      const updated = await api('PATCH', `/api/pairs/${pair.id}`, body);
+
+      // Update in-memory pair data and header badges
+      Object.assign(pair, updated);
+      tgBadge.textContent = `TG: ${updated.telegramChatId}`;
+      dcBadge.textContent = `DC: ${updated.discordChannelId}`;
+      if (labelBadge) {
+        labelBadge.textContent = updated.label || '';
+        labelBadge.style.display = updated.label ? '' : 'none';
+      }
+      flashSaved(`edit-save-status-${pair.id}`);
+      showToast('Verbindung gespeichert.', 'ok');
+    } catch (err) {
+      showToast(`Fehler: ${err.message}`, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  footer.append(status, saveBtn);
+  panel.appendChild(footer);
+  return panel;
+}
+
+// ── Roles panel ───────────────────────────────────────────────────────────────
+
+function buildRolesPanel(pair) {
+  const panel = document.createElement('div');
+  panel.className = 'roles-panel';
+  panel.id = `roles-${pair.id}`;
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Discord Roles → Telegram';
+  panel.appendChild(heading);
+
+  const hint = document.createElement('p');
+  hint.className = 'roles-hint';
+  hint.textContent = 'Aktivierte Rollen werden hinter dem Absender-Namen in Telegram angehängt — nur wenn der Nutzer die Rolle tatsächlich hat.';
+  panel.appendChild(hint);
+
+  const list = document.createElement('div');
+  list.className = 'roles-list';
+  list.id = `roles-list-${pair.id}`;
+  const loading = document.createElement('span');
+  loading.style.cssText = 'font-size:0.8rem;color:var(--muted)';
+  loading.textContent = 'Loading…';
+  list.appendChild(loading);
+  panel.appendChild(list);
+
+  const footer = document.createElement('div');
+  footer.style.cssText = 'margin-top:14px;display:flex;justify-content:flex-end';
+  const saved = document.createElement('span');
+  saved.className = 'save-status';
+  saved.id = `roles-save-status-${pair.id}`;
+  saved.textContent = '✓ Saved';
+  footer.appendChild(saved);
+  panel.appendChild(footer);
+  return panel;
+}
+
+async function loadRoles(pairId, currentRoleIds) {
+  const list = document.getElementById(`roles-list-${pairId}`);
+  if (!list) return;
+  list.innerHTML = '<span style="font-size:0.8rem;color:var(--muted)">Loading…</span>';
+  try {
+    const roles = await api('GET', `/api/pairs/${pairId}/discord-roles`);
+    list.innerHTML = '';
+    if (!roles.length) {
+      list.innerHTML = '<span style="font-size:0.8rem;color:var(--muted)">Keine Rollen im Discord-Server gefunden.</span>';
+      return;
+    }
+    const selected = new Set(currentRoleIds ?? []);
+    for (const role of roles) {
+      const row = document.createElement('div');
+      row.className = 'toggle-row';
+
+      const tog = toggle(`role-${pairId}-${role.id}`, selected.has(role.id), async (val) => {
+        if (val) selected.add(role.id); else selected.delete(role.id);
+        try {
+          await api('PATCH', `/api/pairs/${pairId}/display-roles`, { roleIds: [...selected] });
+          flashSaved(`roles-save-status-${pairId}`);
+        } catch (err) { showToast('Save failed: ' + err.message, 'error'); }
+      });
+
+      const lbl = document.createElement('span');
+      lbl.className = 'toggle-label';
+      lbl.style.display = 'flex';
+      lbl.style.alignItems = 'center';
+      if (role.color && role.color !== '#000000') {
+        const dot = document.createElement('span');
+        dot.className = 'role-color-dot';
+        dot.style.background = role.color;
+        lbl.appendChild(dot);
+      }
+      lbl.appendChild(document.createTextNode(role.name));
+      row.appendChild(tog);
+      row.appendChild(lbl);
+      list.appendChild(row);
+    }
+  } catch (err) {
+    list.innerHTML = `<span style="font-size:0.8rem;color:var(--danger)">Fehler: ${err.message}</span>`;
+  }
+}
+
 // ── Render pair card ──────────────────────────────────────────────────────────
 
 function renderPair(pair) {
@@ -1010,12 +1259,12 @@ function renderPair(pair) {
   const ids = document.createElement('div');
   ids.className = 'pair-ids';
 
-  if (pair.label) {
-    const lbl = document.createElement('span');
-    lbl.className = 'badge label';
-    lbl.textContent = pair.label;
-    ids.appendChild(lbl);
-  }
+  // Always create the label badge (hidden when empty) so Edit can update it
+  const labelBadge = document.createElement('span');
+  labelBadge.className = 'badge label';
+  labelBadge.textContent = pair.label || '';
+  labelBadge.style.display = pair.label ? '' : 'none';
+  ids.appendChild(labelBadge);
 
   const tgBadge = document.createElement('span');
   tgBadge.className = 'badge tg';
@@ -1046,7 +1295,7 @@ function renderPair(pair) {
   function panelToggle(btnEl, panelId, openLabel = 'Close', closedLabel) {
     const p = document.getElementById(panelId);
     // Close other open panels on this card first
-    card.querySelectorAll('.translation-panel.open, .media-panel.open').forEach(el => {
+    card.querySelectorAll('.translation-panel.open, .media-panel.open, .roles-panel.open, .edit-panel.open').forEach(el => {
       if (el.id !== panelId) {
         el.classList.remove('open');
         // Reset sibling button text
@@ -1072,6 +1321,24 @@ function renderPair(pair) {
   mediaBtn.dataset.closed = 'Media';
   mediaBtn.addEventListener('click', () => panelToggle(mediaBtn, `media-${pair.id}`, 'Close ×', 'Media'));
 
+  const rolesBtn = document.createElement('button');
+  rolesBtn.className = 'btn-ghost btn-sm';
+  rolesBtn.textContent = 'Roles';
+  rolesBtn.dataset.panel  = `roles-${pair.id}`;
+  rolesBtn.dataset.closed = 'Roles';
+  rolesBtn.addEventListener('click', () => {
+    const wasOpen = document.getElementById(`roles-${pair.id}`).classList.contains('open');
+    panelToggle(rolesBtn, `roles-${pair.id}`, 'Close ×', 'Roles');
+    if (!wasOpen) loadRoles(pair.id, pair.displayRoles ?? []);
+  });
+
+  const editBtn = document.createElement('button');
+  editBtn.className = 'btn-ghost btn-sm';
+  editBtn.textContent = 'Edit';
+  editBtn.dataset.panel  = `edit-${pair.id}`;
+  editBtn.dataset.closed = 'Edit';
+  editBtn.addEventListener('click', () => panelToggle(editBtn, `edit-${pair.id}`, 'Close ×', 'Edit'));
+
   const delBtn = document.createElement('button');
   delBtn.className = 'btn-danger btn-sm';
   delBtn.textContent = 'Delete';
@@ -1088,11 +1355,13 @@ function renderPair(pair) {
     }
   });
 
-  actions.append(transBtn, mediaBtn, delBtn);
+  actions.append(transBtn, mediaBtn, rolesBtn, editBtn, delBtn);
   header.append(ids, actions);
   card.appendChild(header);
   card.appendChild(buildTranslationPanel(pair));
   card.appendChild(buildMediaPanel(pair));
+  card.appendChild(buildRolesPanel(pair));
+  card.appendChild(buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }));
   return card;
 }
 
@@ -1188,6 +1457,27 @@ function unlockField(id, btn) {
   }
 }
 
+async function loadDeepLUsage() {
+  const wrap = document.getElementById('deepl-usage');
+  const fill = document.getElementById('deepl-usage-fill');
+  const text = document.getElementById('deepl-usage-text');
+  if (!wrap || !fill || !text) return;
+  try {
+    const d = await api('GET', '/api/deepl-usage');
+    const pct = d.character_limit > 0
+      ? Math.min(100, (d.character_count / d.character_limit) * 100)
+      : 0;
+    fill.style.width = pct.toFixed(1) + '%';
+    fill.className = 'usage-bar-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
+    const fmt = n => n.toLocaleString('de-DE');
+    text.textContent =
+      `${fmt(d.character_count)} / ${fmt(d.character_limit)} Zeichen (${pct.toFixed(1)}%)`;
+    wrap.style.display = 'flex';
+  } catch {
+    wrap.style.display = 'none';
+  }
+}
+
 async function loadSettings() {
   try {
     const cfg = await api('GET', '/api/config');
@@ -1219,6 +1509,10 @@ async function loadSettings() {
         el.value = cfg[el.name];
       }
     }
+    // Load DeepL usage whenever a key is configured
+    if (cfg['DEEPL_API_KEY']) loadDeepLUsage();
+    else { const w = document.getElementById('deepl-usage'); if (w) w.style.display = 'none'; }
+
   } catch (err) {
     showToast('Could not load settings: ' + err.message, 'error');
   }
