@@ -249,7 +249,9 @@ The script:
 
 - Stashes any local modifications (so `.env` and `data/config.json` stay safe)
 - Switches to the repository's default branch and `git pull`s
-- Runs `npm install --omit=dev` for new dependencies
+- Runs `npm install --omit=dev` to pull in any new dependencies
+- Runs `npm update --omit=dev` to update existing packages to the latest compatible versions (within the semver ranges in `package.json`, so no breaking major bumps)
+- Lists packages with new **major** versions available as a hint (not auto-installed)
 - Restarts `tg-bridge` via systemd (if installed)
 - Restores your stashed changes afterwards
 
