@@ -143,8 +143,13 @@ export function startTelegram(onMessage) {
   bot.on('message',      handleUpdate);
   bot.on('channel_post', handleUpdate);
 
+  // Log the actual bot identity once connected, before entering the polling loop
+  bot.telegram.getMe()
+    .then(me => console.log(`[telegram] Bot connected: @${me.username} (id=${me.id})`))
+    .catch(err => console.error('[telegram] getMe failed:', err.message));
+
   bot.launch()
-    .then(() => console.log('[telegram] Bot started.'))
+    .then(() => console.log('[telegram] Bot polling stopped.'))
     .catch(err => { console.error('[telegram] Launch error:', err); process.exit(1); });
 
   process.once('SIGINT',  () => bot.stop('SIGINT'));
