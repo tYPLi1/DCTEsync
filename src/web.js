@@ -58,10 +58,32 @@ function writeEnvVars(updates) {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+/**
+ * One-time migration: resolve any @username telegramChatIds to numeric IDs.
+ * Runs on startup so existing pairs created with a username work immediately.
+ */
+async function migrateUsernameChatIds() {
+  const pairs = getPairs();
+  for (const pair of pairs) {
+    const id = String(pair.telegramChatId);
+    if (!id.startsWith('@')) continue;
+    try {
+      const chatInfo = await bot.telegram.getChat(id);
+      updatePair(pair.id, { telegramChatId: String(chatInfo.id) });
+      console.log(`[web] Migration: resolved ${id} → ${chatInfo.id} for pair ${pair.id}`);
+    } catch (err) {
+      console.warn(`[web] Migration: could not resolve ${id} for pair ${pair.id}: ${err?.response?.description ?? err.message}`);
+    }
+  }
+}
+
 export function startWeb() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   app.use(express.static(join(__dirname, '..', 'public')));
+
+  // Migrate any username-based chat IDs to numeric IDs on startup
+  migrateUsernameChatIds().catch(err => console.warn('[web] Migration error:', err.message));
 
   // ── GET /api/pairs ─────────────────────────────────────────────────────────
   app.get('/api/pairs', (_req, res) => {
@@ -82,48 +104,82 @@ export function startWeb() {
       return res.status(400).json({ error: 'discordWebhookUrl must be a valid Discord webhook URL.' });
     }
 
-    // ── Verify the Telegram bot can read messages in the target group ──────────
-    // Two valid configurations allow the bot to receive ALL group messages:
+    // ── Resolve @username → numeric chat ID ───────────────────────────────────
+    // Telegram delivers incoming updates with numeric IDs only. If the user
+    // supplied a @username we resolve it once here so the stored ID matches.
+    let resolvedChatId = String(telegramChatId).trim();
+    if (resolvedChatId.startsWith('@')) {
+      try {
+        const chatInfo = await bot.telegram.getChat(resolvedChatId);
+        console.log(`[web] Resolved ${resolvedChatId} → ${chatInfo.id} (${chatInfo.title || chatInfo.username || ''})`);
+        resolvedChatId = String(chatInfo.id);
+      } catch (err) {
+        return res.status(400).json({
+          error: `Cannot resolve Telegram username ${resolvedChatId}: ${err?.response?.description ?? err.message}`
+        });
+      }
+    }
+
+    // ── Verify the Telegram bot can read messages in the target chat ───────────
+    // Supports groups, supergroups, and channels.
+    //
+    // For groups/supergroups, at least one of the following must be true:
     //   A) Privacy mode disabled globally (BotFather → Bot Settings → Group Privacy → Disable)
     //      → getMe() returns can_read_all_group_messages = true
     //   B) Bot is an administrator of this specific group
     //      → getChatMember() returns status "creator" or "administrator"
-    // If neither applies, the bot only receives /commands and the bridge is silent.
+    //
+    // For channels the bot must be an admin (required to post there anyway).
     try {
-      const me     = await bot.telegram.getMe();
-      const member = await bot.telegram.getChatMember(String(telegramChatId), me.id);
+      const [me, chat] = await Promise.all([
+        bot.telegram.getMe(),
+        bot.telegram.getChat(resolvedChatId)
+      ]);
+      const member = await bot.telegram.getChatMember(resolvedChatId, me.id);
+      const isAdmin = ['creator', 'administrator'].includes(member.status);
 
-      const privacyOff  = me.can_read_all_group_messages === true;          // (A)
-      const isAdmin     = ['creator', 'administrator'].includes(member.status); // (B)
-
-      if (!privacyOff && !isAdmin) {
-        console.warn(
-          `[web] Pair rejected: bot cannot read all messages in ${telegramChatId} ` +
-          `(status=${member.status}, can_read_all=${me.can_read_all_group_messages})`
-        );
-        return res.status(400).json({
-          error:
-            `The bot cannot read regular messages in this group (status: "${member.status}"). ` +
-            'Fix one of these: ' +
-            '(A) Make the bot an administrator of this group, OR ' +
-            '(B) Disable privacy mode globally via BotFather: ' +
-            '@BotFather → /mybots → your bot → Bot Settings → Group Privacy → Turn off.'
-        });
+      if (chat.type === 'channel') {
+        // Channels: bot must be admin (to post) – privacy mode doesn't apply
+        if (!isAdmin) {
+          console.warn(`[web] Pair rejected: bot is not admin in channel ${resolvedChatId} (status=${member.status})`);
+          return res.status(400).json({
+            error:
+              `The bot is not an administrator of this channel (status: "${member.status}"). ` +
+              'Add the bot as an admin with "Post Messages" permission.'
+          });
+        }
+      } else {
+        // Groups / supergroups: need privacy off OR admin status
+        const privacyOff = me.can_read_all_group_messages === true;
+        if (!privacyOff && !isAdmin) {
+          console.warn(
+            `[web] Pair rejected: bot cannot read all messages in ${resolvedChatId} ` +
+            `(status=${member.status}, can_read_all=${me.can_read_all_group_messages})`
+          );
+          return res.status(400).json({
+            error:
+              `The bot cannot read regular messages in this group (status: "${member.status}"). ` +
+              'Fix one of these: ' +
+              '(A) Make the bot an administrator of this group, OR ' +
+              '(B) Disable privacy mode globally via BotFather: ' +
+              '@BotFather → /mybots → your bot → Bot Settings → Group Privacy → Turn off.'
+          });
+        }
       }
     } catch (err) {
       const msg = err?.response?.description ?? err.message;
-      console.warn(`[web] Telegram group check failed for ${telegramChatId}: ${msg}`);
+      console.warn(`[web] Telegram chat check failed for ${resolvedChatId}: ${msg}`);
       return res.status(400).json({
         error:
-          `Cannot access Telegram group ${telegramChatId}: ${msg}. ` +
-          'Make sure the bot is already a member of the group before adding the pair.'
+          `Cannot access Telegram chat ${resolvedChatId}: ${msg}. ` +
+          'Make sure the bot is already a member of the group/channel before adding the pair.'
       });
     }
 
     const pair = {
       id: uuidv4(),
       label: label || '',
-      telegramChatId:    String(telegramChatId),
+      telegramChatId:    resolvedChatId,
       discordChannelId:  String(discordChannelId),
       discordWebhookUrl,
       translation: { ...DEFAULT_TRANSLATION },

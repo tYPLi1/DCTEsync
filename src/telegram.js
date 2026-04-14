@@ -91,26 +91,57 @@ export async function downloadTelegramFile(fileId, sizeHint = 0) {
 /**
  * Start the Telegram bot.
  *
+ * Handles both regular group/supergroup messages AND channel posts so that
+ * Telegram channels (not just groups) are bridged correctly.
+ *
  * @param {(msg: object) => void} onMessage
  *   Called with { chatId, senderName, avatarUrl, text, media }
  */
 export function startTelegram(onMessage) {
-  bot.on('message', async (ctx) => {
-    const msg = ctx.message;
-    if (!['group', 'supergroup'].includes(ctx.chat?.type)) return;
+  // Global error handler — prevents silent update drops on handler crashes
+  bot.catch((err, ctx) => {
+    console.error(`[telegram] Unhandled error (update ${ctx.update?.update_id}):`, err.message);
+  });
+
+  // Unified handler for both group messages and channel posts
+  const handleUpdate = async (ctx) => {
+    // ctx.message for groups/supergroups, ctx.channelPost for channels
+    const msg      = ctx.message ?? ctx.channelPost;
+    if (!msg) return;
+
+    const chatType = ctx.chat?.type;
+
+    // Accept groups, supergroups, and channels
+    if (!['group', 'supergroup', 'channel'].includes(chatType)) {
+      console.log(`[telegram] ignored update from unsupported chat type: ${chatType}`);
+      return;
+    }
+
+    // Ignore messages sent by bots (including the bridge bot itself)
     if (msg.from?.is_bot) return;
 
-    const chatId     = String(ctx.chat.id);
-    const sender     = msg.from;
-    const senderName = [sender.first_name, sender.last_name].filter(Boolean).join(' ') || sender.username || 'Unknown';
-    const text       = msg.text ?? null;
-    const media      = extractMedia(msg);
+    const chatId = String(ctx.chat.id);
+    const sender = msg.from ?? null; // null for anonymous channel posts
+
+    // For channel posts the sender is unknown; use the channel title as name
+    const senderName = sender
+      ? ([sender.first_name, sender.last_name].filter(Boolean).join(' ') || sender.username || 'Unknown')
+      : (ctx.chat.title || 'Channel');
+
+    const text  = msg.text ?? null;
+    const media = extractMedia(msg);
 
     if (!text && !media) return; // nothing to forward
 
-    const avatarUrl = await getAvatarUrl(sender.id);
+    console.log(`[telegram] ${chatType} msg from chatId=${chatId} sender="${senderName}"`);
+
+    const avatarUrl = sender ? await getAvatarUrl(sender.id) : null;
     await onMessage({ chatId, senderName, avatarUrl, text, media });
-  });
+  };
+
+  // Listen to both update types
+  bot.on('message',      handleUpdate);
+  bot.on('channel_post', handleUpdate);
 
   bot.launch()
     .then(() => console.log('[telegram] Bot started.'))

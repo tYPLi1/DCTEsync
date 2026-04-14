@@ -728,6 +728,14 @@ function buildTranslationPanel(pair) {
     masterToggle.title = val ? 'Enabled' : 'Disabled';
     grid.style.opacity = val ? '1' : '0.4';
     grid.style.pointerEvents = val ? '' : 'none';
+    // Live-update the badge in the pair header
+    const badge = document.getElementById(`trans-badge-${pair.id}`);
+    if (badge) {
+      badge.textContent = val ? 'Translation ON' : 'Translation OFF';
+      badge.style.cssText = val
+        ? 'background:rgba(87,242,135,.12);color:var(--success)'
+        : 'background:var(--surface2);color:var(--muted)';
+    }
   });
 
   const masterLabel = document.createElement('span');
@@ -1203,7 +1211,8 @@ async function loadSettings() {
           lockBtn.classList.remove('unlocked');
         }
       } else if (el.name === 'TRANSLATION_ENABLED') {
-        const active = cfg['TRANSLATION_ENABLED'] === 'true';
+        // Default to enabled when the key hasn't been explicitly set yet
+        const active = cfg['TRANSLATION_ENABLED'] !== 'false';
         el.checked = active;
         updateTranslationStatus(active);
       } else if (cfg[el.name] !== undefined) {
