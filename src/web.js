@@ -4,6 +4,7 @@ import { dirname, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC } from './store.js';
 import { getProviderStatus } from './translation.js';
+import { bot } from './telegram.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3000', 10);
@@ -19,7 +20,7 @@ export function startWeb() {
   });
 
   // ── POST /api/pairs ────────────────────────────────────────────────────────
-  app.post('/api/pairs', (req, res) => {
+  app.post('/api/pairs', async (req, res) => {
     const { telegramChatId, discordChannelId, discordWebhookUrl, label } = req.body;
 
     if (!telegramChatId || !discordChannelId || !discordWebhookUrl) {
@@ -30,6 +31,33 @@ export function startWeb() {
     if (!discordWebhookUrl.startsWith('https://discord.com/api/webhooks/') &&
         !discordWebhookUrl.startsWith('https://discordapp.com/api/webhooks/')) {
       return res.status(400).json({ error: 'discordWebhookUrl must be a valid Discord webhook URL.' });
+    }
+
+    // ── Verify the Telegram bot can read messages in the target group ──────────
+    // Bots in privacy mode only receive commands, not regular messages.
+    // Being an admin (or having privacy mode disabled globally via BotFather)
+    // is required for the bridge to work.
+    try {
+      const me     = await bot.telegram.getMe();
+      const member = await bot.telegram.getChatMember(String(telegramChatId), me.id);
+
+      if (!['creator', 'administrator'].includes(member.status)) {
+        console.warn(`[web] Pair rejected: bot is not admin in ${telegramChatId} (status=${member.status})`);
+        return res.status(400).json({
+          error:
+            `The Telegram bot is a "${member.status}" in this group, not an administrator. ` +
+            'Without admin rights the bot operates in privacy mode and cannot read regular messages. ' +
+            'Please make the bot an administrator of the group first, then add the pair.'
+        });
+      }
+    } catch (err) {
+      const msg = err?.response?.description ?? err.message;
+      console.warn(`[web] Telegram group check failed for ${telegramChatId}: ${msg}`);
+      return res.status(400).json({
+        error:
+          `Cannot access Telegram group ${telegramChatId}: ${msg}. ` +
+          'Make sure the bot is already a member of the group before adding the pair.'
+      });
     }
 
     const pair = {
