@@ -14,17 +14,20 @@ ask() {
   local secret="$3"
   local value=""
 
+  # Prompts MUST go to stderr — this function is called inside $(...) so
+  # stdout is captured by the caller. Without >&2 the user sees nothing
+  # and types blindly.
   if [ -n "$default" ]; then
-    echo -ne "${CYAN}${prompt}${RESET} [${default}]: "
+    printf '%b%s%b [%s]: ' "$CYAN" "$prompt" "$RESET" "$default" >&2
   else
-    echo -ne "${CYAN}${prompt}${RESET}: "
+    printf '%b%s%b: ' "$CYAN" "$prompt" "$RESET" >&2
   fi
 
   if [ "$secret" = "true" ]; then
-    read -rs value
-    echo
+    read -rs value </dev/tty
+    echo >&2
   else
-    read -r value
+    read -r value </dev/tty
   fi
 
   if [ -z "$value" ] && [ -n "$default" ]; then
@@ -36,16 +39,18 @@ ask() {
 
 ask_optional() {
   local prompt="$1"
-  echo -ne "${CYAN}${prompt}${RESET} ${YELLOW}(optional, Enter to skip)${RESET}: "
+  printf '%b%s%b %b(optional, Enter to skip)%b: ' \
+    "$CYAN" "$prompt" "$RESET" "$YELLOW" "$RESET" >&2
   local value=""
-  read -rs value
-  echo
+  read -rs value </dev/tty
+  echo >&2
   echo "$value"
 }
 
 confirm() {
-  echo -ne "${CYAN}$1${RESET} [y/N]: "
-  read -r ans
+  printf '%b%s%b [y/N]: ' "$CYAN" "$1" "$RESET" >&2
+  local ans
+  read -r ans </dev/tty
   [[ "$ans" =~ ^[Yy]$ ]]
 }
 
