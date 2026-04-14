@@ -95,9 +95,11 @@ export async function downloadTelegramFile(fileId, sizeHint = 0) {
  * Telegram channels (not just groups) are bridged correctly.
  *
  * @param {(msg: object) => void} onMessage
- *   Called with { chatId, senderName, avatarUrl, text, media }
+ *   Called with { chatId, msgId, senderName, avatarUrl, text, media, replyToMsgId, topicId }
+ * @param {(reaction: object) => void} [onReaction]
+ *   Called with { chatId, msgId, added: string[], removed: string[] }
  */
-export function startTelegram(onMessage) {
+export function startTelegram(onMessage, onReaction) {
   // Global error handler — prevents silent update drops on handler crashes
   bot.catch((err, ctx) => {
     console.error(`[telegram] Unhandled error (update ${ctx.update?.update_id}):`, err.message);
@@ -133,11 +135,28 @@ export function startTelegram(onMessage) {
 
     if (!text && !media) return; // nothing to forward
 
-    console.log(`[telegram] ${chatType} msg from chatId=${chatId} sender="${senderName}"`);
+    // ── Reply and topic metadata ───────────────────────────────────────────
+    const replyToMsgId = msg.reply_to_message?.message_id ?? null;
+    // is_topic_message is true for messages inside a forum topic thread
+    const topicId = msg.is_topic_message ? (msg.message_thread_id ?? null) : null;
+
+    console.log(`[telegram] ${chatType} msg from chatId=${chatId} sender="${senderName}"${topicId ? ` topicId=${topicId}` : ''}`);
 
     const avatarUrl = sender ? await getAvatarUrl(sender.id) : null;
-    await onMessage({ chatId, senderName, avatarUrl, text, media });
+    await onMessage({ chatId, msgId: msg.message_id, senderName, avatarUrl, text, media, replyToMsgId, topicId });
   };
+
+  // ── Reaction handler ───────────────────────────────────────────────────────
+  if (onReaction) {
+    bot.on('message_reaction', (ctx) => {
+      const r = ctx.update.message_reaction;
+      if (!r) return;
+      const added   = (r.new_reaction ?? []).filter(e => e.type === 'emoji').map(e => e.emoji);
+      const removed = (r.old_reaction ?? []).filter(e => e.type === 'emoji').map(e => e.emoji);
+      if (!added.length && !removed.length) return;
+      onReaction({ chatId: String(r.chat.id), msgId: r.message_id, added, removed });
+    });
+  }
 
   // Listen to both update types
   bot.on('message',      handleUpdate);
@@ -148,7 +167,9 @@ export function startTelegram(onMessage) {
     .then(me => console.log(`[telegram] Bot connected: @${me.username} (id=${me.id})`))
     .catch(err => console.error('[telegram] getMe failed:', err.message));
 
-  bot.launch()
+  bot.launch({
+    allowedUpdates: ['message', 'channel_post', 'message_reaction']
+  })
     .then(() => console.log('[telegram] Bot polling stopped.'))
     .catch(err => { console.error('[telegram] Launch error:', err); process.exit(1); });
 
@@ -160,35 +181,51 @@ export function startTelegram(onMessage) {
 
 /**
  * Send a text message or file from Discord to a Telegram group.
+ * Returns the Telegram message_id of the sent message, or null on error.
  *
  * @param {string} chatId
  * @param {string} senderName
  * @param {string|null} text        Plain text (used as caption when attachment is present)
  * @param {{ buffer: Buffer, mimeType: string, fileName: string }|null} attachment
+ * @param {{ replyToMsgId?: number, topicId?: number }} [options]
+ * @returns {Promise<number|null>}
  */
-export async function sendToTelegram(chatId, senderName, text, attachment = null) {
+export async function sendToTelegram(chatId, senderName, text, attachment = null, options = {}) {
   const caption = `[${senderName}]${text ? `: ${text}` : ''}`;
+  const extra   = {};
+
+  if (options.replyToMsgId) {
+    extra.reply_parameters = { message_id: options.replyToMsgId };
+  }
+  if (options.topicId) {
+    extra.message_thread_id = options.topicId;
+  }
 
   try {
+    let result;
+
     if (!attachment) {
-      if (text) await bot.telegram.sendMessage(chatId, caption);
-      return;
+      if (!text) return null;
+      result = await bot.telegram.sendMessage(chatId, caption, extra);
+      return result?.message_id ?? null;
     }
 
     const { buffer, mimeType, fileName } = attachment;
     const { method } = classifyMime(mimeType, fileName);
     const fileInput  = { source: buffer, filename: fileName };
-    const extra      = { caption };
+    const fileExtra  = { ...extra, caption };
 
     switch (method) {
-      case 'sendPhoto':     await bot.telegram.sendPhoto(chatId, fileInput, extra);     break;
-      case 'sendVideo':     await bot.telegram.sendVideo(chatId, fileInput, extra);     break;
-      case 'sendAnimation': await bot.telegram.sendAnimation(chatId, fileInput, extra); break;
-      case 'sendAudio':     await bot.telegram.sendAudio(chatId, fileInput, extra);     break;
-      case 'sendVoice':     await bot.telegram.sendVoice(chatId, fileInput, extra);     break;
-      default:              await bot.telegram.sendDocument(chatId, fileInput, extra);  break;
+      case 'sendPhoto':     result = await bot.telegram.sendPhoto(chatId, fileInput, fileExtra);     break;
+      case 'sendVideo':     result = await bot.telegram.sendVideo(chatId, fileInput, fileExtra);     break;
+      case 'sendAnimation': result = await bot.telegram.sendAnimation(chatId, fileInput, fileExtra); break;
+      case 'sendAudio':     result = await bot.telegram.sendAudio(chatId, fileInput, fileExtra);     break;
+      case 'sendVoice':     result = await bot.telegram.sendVoice(chatId, fileInput, fileExtra);     break;
+      default:              result = await bot.telegram.sendDocument(chatId, fileInput, fileExtra);  break;
     }
+    return result?.message_id ?? null;
   } catch (err) {
     console.error(`[telegram] Send error to ${chatId}:`, err.message);
+    return null;
   }
 }

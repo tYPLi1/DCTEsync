@@ -2,25 +2,36 @@
  * bridge.js — Entry point.
  *
  * Message flow:
- *   Telegram group  →  extract media  →  download  →  Discord webhook
- *   Discord channel →  extract attachments  →  download  →  Telegram bot
+ *   Telegram group/topic  →  extract media  →  download  →  Discord webhook
+ *   Discord channel       →  extract attachments  →  download  →  Telegram bot
  *
  * Per-pair controls:
- *   pair.mediaSync   — which media types are forwarded (all on by default)
- *   pair.translation — AI translation per direction (off by default)
+ *   pair.mediaSync        — which media types are forwarded (all on by default)
+ *   pair.translation      — AI translation per direction (off by default)
+ *   pair.telegramTopicId  — optional forum topic ID (null = whole chat)
+ *
+ * Reply sync:
+ *   When a user replies to a message, the forwarded message is also sent as a
+ *   reply to the corresponding message on the other platform.
+ *   Requires the message ID mapping (messageMap.js) to be populated first.
+ *
+ * Reaction sync:
+ *   Standard Unicode emoji reactions are mirrored in both directions.
+ *   Custom Discord guild emoji are silently ignored (can't be sent to Telegram).
+ *   Telegram custom/animated emoji are ignored (only type:'emoji' is forwarded).
  */
 
 import 'dotenv/config';
-import { startTelegram, sendToTelegram, downloadTelegramFile } from './telegram.js';
-import { startDiscord,  sendToDiscord  }                       from './discord.js';
+import { startTelegram, sendToTelegram, downloadTelegramFile, bot } from './telegram.js';
+import { startDiscord,  sendToDiscord, reactOnDiscord }             from './discord.js';
 import { getPairByTelegramId, getPairByDiscordId, getTranslationChain } from './store.js';
-import { maybeTranslate }                                       from './translation.js';
+import { maybeTranslate }                                            from './translation.js';
+import { store, tgToDc, dcToTg }                                    from './messageMap.js';
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
-import { startWeb }                                             from './web.js';
+import { startWeb }                                                  from './web.js';
 
 // ── mediaSync helpers ─────────────────────────────────────────────────────────
 
-// Map Telegram media types → mediaSync.tgToDiscord key
 const TG_TYPE_KEY = {
   photo:           'photo',
   video:           'video',
@@ -39,7 +50,6 @@ const TG_TYPE_KEY = {
 function isTgAllowed(mediaSync, mediaType) {
   const key = TG_TYPE_KEY[mediaType];
   if (!key) return true;
-  // If mediaSync is missing (legacy pair), default to allowed
   return mediaSync?.tgToDiscord?.[key] !== false;
 }
 
@@ -49,19 +59,24 @@ function isDcAllowed(mediaSync, category) {
 
 // ── Telegram → Discord ────────────────────────────────────────────────────────
 
-async function onTelegramMessage({ chatId, senderName, avatarUrl, text, media }) {
-  const pair = getPairByTelegramId(chatId);
+async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, media, replyToMsgId, topicId }) {
+  const pair = getPairByTelegramId(chatId, topicId);
   if (!pair) {
-    console.log(`[bridge] TG→DC | no pair for chatId=${chatId} — message ignored`);
+    console.log(`[bridge] TG→DC | no pair for chatId=${chatId}${topicId ? ` topicId=${topicId}` : ''} — message ignored`);
     return;
   }
+
+  // Resolve reply: find the Discord message that corresponds to the TG message being replied to
+  const dcReplyId = replyToMsgId ? tgToDc(pair.id, replyToMsgId) : null;
 
   // ── Text-only ──────────────────────────────────────────────────────────────
   if (!media) {
     if (!text) return;
     const translated = await maybeTranslate(text, pair.translation, 'tgToDiscord', getTranslationChain());
-    console.log(`[bridge] TG→DC | pair=${pair.id} | text | from="${senderName}"`);
-    await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, translated);
+    console.log(`[bridge] TG→DC | pair=${pair.id} | text | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, translated, null,
+      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
     return;
   }
 
@@ -73,28 +88,30 @@ async function onTelegramMessage({ chatId, senderName, avatarUrl, text, media })
 
   // ── Non-file types (location, poll, animated sticker) ─────────────────────
   if (media.type === 'sticker_animated') {
-    const msg = `[Sticker ${media.emoji}]`;
-    await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, msg);
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, `[Sticker ${media.emoji}]`, null,
+      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
     return;
   }
 
   if (media.type === 'location') {
     const msg = `📍 Location: https://maps.google.com/?q=${media.latitude},${media.longitude}`;
-    await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, msg);
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, msg, null,
+      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
     return;
   }
 
   if (media.type === 'poll') {
     const lines = [`📊 **Poll:** ${media.question}`, ...media.options.map(o => `• ${o}`)];
-    await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, lines.join('\n'));
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, lines.join('\n'), null,
+      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
     return;
   }
 
   // ── File-based media ───────────────────────────────────────────────────────
   if (media.fileId) {
-    // Telegram's bot API only allows downloading files up to TELEGRAM_MAX_BYTES (20 MB).
-    // Discord webhooks cap at DISCORD_MAX_BYTES (25 MB), but the Telegram download
-    // limit is the binding constraint, so we reject against it here.
     const effectiveLimit = Math.min(TELEGRAM_MAX_BYTES, DISCORD_MAX_BYTES);
     if ((media.size || 0) > effectiveLimit) {
       await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl,
@@ -112,18 +129,17 @@ async function onTelegramMessage({ chatId, senderName, avatarUrl, text, media })
     const captionRaw = media.caption || text || null;
     const caption    = captionRaw ? await maybeTranslate(captionRaw, pair.translation, 'tgToDiscord', getTranslationChain()) : null;
 
-    console.log(`[bridge] TG→DC | pair=${pair.id} | type=${media.type} | from="${senderName}"`);
-    await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, caption, {
-      buffer,
-      mimeType: media.mimeType,
-      fileName: media.fileName
-    });
+    console.log(`[bridge] TG→DC | pair=${pair.id} | type=${media.type} | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, caption,
+      { buffer, mimeType: media.mimeType, fileName: media.fileName },
+      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
   }
 }
 
 // ── Discord → Telegram ────────────────────────────────────────────────────────
 
-async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, attachments, roles = [] }) {
+async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, text, attachments, roles = [], replyToMsgId }) {
   const pair = getPairByDiscordId(channelId);
   if (!pair) return;
 
@@ -136,6 +152,12 @@ async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, a
     ? `${senderName} · ${matchedRoles.join(' · ')}`
     : senderName;
 
+  // Resolve reply: find the Telegram message that corresponds to the DC message being replied to
+  const tgReplyId = replyToMsgId ? dcToTg(pair.id, replyToMsgId) : null;
+  const sendOpts  = {};
+  if (tgReplyId)          sendOpts.replyToMsgId = Number(tgReplyId);
+  if (pair.telegramTopicId) sendOpts.topicId    = pair.telegramTopicId;
+
   const translatedText = text
     ? await maybeTranslate(text, pair.translation, 'discordToTg', getTranslationChain())
     : null;
@@ -143,8 +165,9 @@ async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, a
   // ── Text-only ──────────────────────────────────────────────────────────────
   if (!attachments.length) {
     if (translatedText) {
-      console.log(`[bridge] DC→TG | pair=${pair.id} | text | from="${displayName}"`);
-      await sendToTelegram(pair.telegramChatId, displayName, translatedText);
+      console.log(`[bridge] DC→TG | pair=${pair.id} | text | from="${displayName}"${tgReplyId ? ' (reply)' : ''}`);
+      const tgMsgId = await sendToTelegram(pair.telegramChatId, displayName, translatedText, null, sendOpts);
+      if (msgId && tgMsgId) store(pair.id, tgMsgId, msgId);
     }
     return;
   }
@@ -162,32 +185,73 @@ async function onDiscordMessage({ channelId, senderName, avatarUrl: _av, text, a
 
     const buffer = await downloadUrl(att.url, DISCORD_MAX_BYTES);
     if (!buffer) {
-      await sendToTelegram(pair.telegramChatId, displayName, `[Could not download: ${att.name}]`);
-      captionUsed = true; // don't repeat error + text
+      await sendToTelegram(pair.telegramChatId, displayName, `[Could not download: ${att.name}]`, null, sendOpts);
+      captionUsed = true;
       continue;
     }
 
-    // Use text as caption on the first forwarded attachment
     const caption = !captionUsed ? translatedText : null;
     captionUsed = true;
 
-    console.log(`[bridge] DC→TG | pair=${pair.id} | category=${category} | from="${displayName}"`);
-    await sendToTelegram(pair.telegramChatId, displayName, caption, {
-      buffer,
-      mimeType: att.contentType || 'application/octet-stream',
-      fileName: att.name
-    });
+    console.log(`[bridge] DC→TG | pair=${pair.id} | category=${category} | from="${displayName}"${tgReplyId ? ' (reply)' : ''}`);
+    const tgMsgId = await sendToTelegram(pair.telegramChatId, displayName, caption,
+      { buffer, mimeType: att.contentType || 'application/octet-stream', fileName: att.name },
+      sendOpts);
+    if (msgId && tgMsgId) store(pair.id, tgMsgId, msgId);
   }
 
   // All attachments were blocked → still send text if present
   if (!captionUsed && translatedText) {
-    await sendToTelegram(pair.telegramChatId, displayName, translatedText);
+    const tgMsgId = await sendToTelegram(pair.telegramChatId, displayName, translatedText, null, sendOpts);
+    if (msgId && tgMsgId) store(pair.id, tgMsgId, msgId);
+  }
+}
+
+// ── Telegram → Discord reaction sync ─────────────────────────────────────────
+
+async function onTelegramReaction({ chatId, msgId, added, removed }) {
+  // Find a pair for this chat (topic reactions don't carry topic info — use catch-all)
+  const pair = getPairByTelegramId(chatId);
+  if (!pair) return;
+
+  const dcMsgId = tgToDc(pair.id, msgId);
+  if (!dcMsgId) return; // message not in our mapping — ignore
+
+  // Add new reactions on the Discord side
+  for (const emoji of added) {
+    console.log(`[bridge] TG→DC reaction | pair=${pair.id} | +${emoji}`);
+    await reactOnDiscord(pair.discordChannelId, dcMsgId, emoji);
+  }
+  // Removing Discord reactions by another user isn't reliably possible — skip
+}
+
+// ── Discord → Telegram reaction sync ─────────────────────────────────────────
+
+async function onDiscordReaction({ channelId, msgId, emoji, added }) {
+  const pair = getPairByDiscordId(channelId);
+  if (!pair) return;
+
+  const tgMsgId = dcToTg(pair.id, msgId);
+  if (!tgMsgId) return; // message not in our mapping — ignore
+
+  try {
+    if (added) {
+      console.log(`[bridge] DC→TG reaction | pair=${pair.id} | +${emoji}`);
+      await bot.telegram.setMessageReaction(pair.telegramChatId, Number(tgMsgId),
+        [{ type: 'emoji', emoji }]);
+    } else {
+      // Remove: clear the bot's reaction on that message
+      console.log(`[bridge] DC→TG reaction | pair=${pair.id} | -${emoji}`);
+      await bot.telegram.setMessageReaction(pair.telegramChatId, Number(tgMsgId), []);
+    }
+  } catch (err) {
+    console.error(`[bridge] DC→TG reaction error:`, err.message);
   }
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 console.log('[bridge] Starting Telegram ↔ Discord bridge…');
-startTelegram(onTelegramMessage);
-startDiscord(onDiscordMessage);
+startTelegram(onTelegramMessage, onTelegramReaction);
+startDiscord(onDiscordMessage, onDiscordReaction);
 startWeb();

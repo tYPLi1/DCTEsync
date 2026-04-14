@@ -716,6 +716,10 @@
           <input type="text" id="f-tg" placeholder="-1001234567890" required />
         </div>
         <div class="form-group">
+          <label for="f-topic" title="For Telegram forum groups only. Leave blank to bridge the whole chat.">Telegram Topic ID <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
+          <input type="text" id="f-topic" placeholder="Forum topic ID" />
+        </div>
+        <div class="form-group">
           <label for="f-dc">Discord Channel ID</label>
           <input type="text" id="f-dc" placeholder="123456789012345678" required />
         </div>
@@ -1164,12 +1168,13 @@ function buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }) {
     return { group: g, input: inp };
   }
 
-  const { group: gLabel,  input: iLabel  } = field(`e-label-${pair.id}`,  'Label (optional)',      pair.label,             'z.B. General');
-  const { group: gTg,    input: iTg     } = field(`e-tg-${pair.id}`,     'Telegram Chat ID',      pair.telegramChatId,    '-1001234567890');
-  const { group: gDc,    input: iDc     } = field(`e-dc-${pair.id}`,     'Discord Channel ID',    pair.discordChannelId,  '123456789012345678');
-  const { group: gWh,    input: iWh     } = field(`e-wh-${pair.id}`,     'Discord Webhook URL',   pair.discordWebhookUrl, 'https://discord.com/api/webhooks/…', true);
+  const { group: gLabel,  input: iLabel  } = field(`e-label-${pair.id}`,  'Label (optional)',                    pair.label,             'z.B. General');
+  const { group: gTg,    input: iTg     } = field(`e-tg-${pair.id}`,     'Telegram Chat ID',                    pair.telegramChatId,    '-1001234567890');
+  const { group: gTopic, input: iTopic  } = field(`e-topic-${pair.id}`,  'Telegram Topic ID (optional)',         pair.telegramTopicId ?? '', 'Forum topic ID');
+  const { group: gDc,    input: iDc     } = field(`e-dc-${pair.id}`,     'Discord Channel ID',                  pair.discordChannelId,  '123456789012345678');
+  const { group: gWh,    input: iWh     } = field(`e-wh-${pair.id}`,     'Discord Webhook URL',                 pair.discordWebhookUrl, 'https://discord.com/api/webhooks/…', true);
 
-  grid.append(gLabel, gTg, gDc, gWh);
+  grid.append(gLabel, gTg, gTopic, gDc, gWh);
   panel.appendChild(grid);
 
   const footer = document.createElement('div');
@@ -1190,6 +1195,9 @@ function buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }) {
       if (iTg.value.trim()    !== pair.telegramChatId)         body.telegramChatId   = iTg.value.trim();
       if (iDc.value.trim()    !== pair.discordChannelId)       body.discordChannelId = iDc.value.trim();
       if (iWh.value.trim()    !== pair.discordWebhookUrl)      body.discordWebhookUrl = iWh.value.trim();
+      const newTopic = iTopic.value.trim() || null;
+      const oldTopic = pair.telegramTopicId != null ? String(pair.telegramTopicId) : null;
+      if ((newTopic ?? null) !== (oldTopic ?? null))           body.telegramTopicId  = newTopic;
 
       if (!Object.keys(body).length) {
         showToast('Keine Änderungen.', 'error');
@@ -1204,6 +1212,11 @@ function buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }) {
       if (labelBadge) {
         labelBadge.textContent = updated.label || '';
         labelBadge.style.display = updated.label ? '' : 'none';
+      }
+      const tBadge = document.getElementById(`topic-badge-${pair.id}`);
+      if (tBadge) {
+        tBadge.textContent = `Topic: ${updated.telegramTopicId}`;
+        tBadge.style.display = updated.telegramTopicId ? '' : 'none';
       }
       flashSaved(`edit-save-status-${pair.id}`);
       showToast('Verbindung gespeichert.', 'ok');
@@ -1340,7 +1353,14 @@ function renderPair(pair) {
     : 'background:var(--surface2);color:var(--muted)';
   transBadge.textContent = pair.translation?.enabled ? 'Translation ON' : 'Translation OFF';
 
-  ids.append(tgBadge, arrow, dcBadge, transBadge);
+  const topicBadge = document.createElement('span');
+  topicBadge.className = 'badge';
+  topicBadge.id = `topic-badge-${pair.id}`;
+  topicBadge.style.cssText = 'background:rgba(38,165,228,.1);color:var(--accent-tg)';
+  topicBadge.textContent = `Topic: ${pair.telegramTopicId}`;
+  topicBadge.style.display = pair.telegramTopicId ? '' : 'none';
+
+  ids.append(tgBadge, arrow, dcBadge, transBadge, topicBadge);
 
   const actions = document.createElement('div');
   actions.className = 'pair-actions';
@@ -1446,15 +1466,16 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
   e.preventDefault();
   const label    = document.getElementById('f-label').value.trim();
   const tgId     = document.getElementById('f-tg').value.trim();
+  const topicId  = document.getElementById('f-topic').value.trim();
   const dcId     = document.getElementById('f-dc').value.trim();
   const webhook  = document.getElementById('f-wh').value.trim();
 
   if (!tgId || !dcId || !webhook) return;
 
   try {
-    const pair = await api('POST', '/api/pairs', {
-      label, telegramChatId: tgId, discordChannelId: dcId, discordWebhookUrl: webhook
-    });
+    const body = { label, telegramChatId: tgId, discordChannelId: dcId, discordWebhookUrl: webhook };
+    if (topicId) body.telegramTopicId = topicId;
+    const pair = await api('POST', '/api/pairs', body);
     document.getElementById('pairs-list').prepend(renderPair(pair));
     checkEmpty();
     e.target.reset();

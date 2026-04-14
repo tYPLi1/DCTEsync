@@ -93,7 +93,7 @@ export function startWeb() {
 
   // ── POST /api/pairs ────────────────────────────────────────────────────────
   app.post('/api/pairs', async (req, res) => {
-    const { telegramChatId, discordChannelId, discordWebhookUrl, label } = req.body;
+    const { telegramChatId, discordChannelId, discordWebhookUrl, label, telegramTopicId } = req.body;
 
     if (!telegramChatId || !discordChannelId || !discordWebhookUrl) {
       return res.status(400).json({ error: 'telegramChatId, discordChannelId and discordWebhookUrl are required.' });
@@ -177,10 +177,16 @@ export function startWeb() {
       });
     }
 
+    // Parse optional forum topic ID (integer or null)
+    const parsedTopicId = telegramTopicId != null && telegramTopicId !== ''
+      ? parseInt(telegramTopicId, 10)
+      : null;
+
     const pair = {
       id: uuidv4(),
       label: label || '',
       telegramChatId:    resolvedChatId,
+      telegramTopicId:   parsedTopicId,
       discordChannelId:  String(discordChannelId),
       discordWebhookUrl,
       translation: { ...DEFAULT_TRANSLATION },
@@ -199,10 +205,16 @@ export function startWeb() {
     const existing = getPairs().find(p => p.id === req.params.id);
     if (!existing) return res.status(404).json({ error: 'Pair not found.' });
 
-    const { label, telegramChatId, discordChannelId, discordWebhookUrl } = req.body;
+    const { label, telegramChatId, discordChannelId, discordWebhookUrl, telegramTopicId } = req.body;
     const updates = {};
 
     if (label !== undefined)  updates.label = String(label);
+
+    if (telegramTopicId !== undefined) {
+      updates.telegramTopicId = telegramTopicId !== null && telegramTopicId !== ''
+        ? parseInt(telegramTopicId, 10)
+        : null;
+    }
 
     if (discordWebhookUrl !== undefined && discordWebhookUrl !== existing.discordWebhookUrl) {
       if (!discordWebhookUrl.startsWith('https://discord.com/api/webhooks/') &&
