@@ -15,7 +15,7 @@ import { startTelegram, sendToTelegram, downloadTelegramFile } from './telegram.
 import { startDiscord,  sendToDiscord  }                       from './discord.js';
 import { getPairByTelegramId, getPairByDiscordId }             from './store.js';
 import { maybeTranslate }                                       from './translation.js';
-import { downloadUrl, classifyMime, DISCORD_MAX_BYTES }         from './media.js';
+import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
 import { startWeb }                                             from './web.js';
 
 // ── mediaSync helpers ─────────────────────────────────────────────────────────
@@ -89,9 +89,13 @@ async function onTelegramMessage({ chatId, senderName, avatarUrl, text, media })
 
   // ── File-based media ───────────────────────────────────────────────────────
   if (media.fileId) {
-    if ((media.size || 0) > DISCORD_MAX_BYTES) {
+    // Telegram's bot API only allows downloading files up to TELEGRAM_MAX_BYTES (20 MB).
+    // Discord webhooks cap at DISCORD_MAX_BYTES (25 MB), but the Telegram download
+    // limit is the binding constraint, so we reject against it here.
+    const effectiveLimit = Math.min(TELEGRAM_MAX_BYTES, DISCORD_MAX_BYTES);
+    if ((media.size || 0) > effectiveLimit) {
       await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl,
-        `[File too large to forward: ${media.fileName} (>${Math.round(DISCORD_MAX_BYTES / 1024 / 1024)} MB)]`);
+        `[File too large to forward: ${media.fileName} (>${Math.round(effectiveLimit / 1024 / 1024)} MB)]`);
       return;
     }
 

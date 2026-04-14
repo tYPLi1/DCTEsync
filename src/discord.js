@@ -28,7 +28,7 @@ export function startDiscord(onMessage) {
 
   client.on(Events.MessageCreate, message => {
     if (message.author.bot) return; // ignore bots and webhook messages
-    if (!message.guild) return;     // DMs only
+    if (!message.guild) return;     // ignore DMs — guild messages only
 
     const text        = message.content || null;
     const attachments = [...message.attachments.values()].map(a => ({

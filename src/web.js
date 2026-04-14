@@ -10,7 +10,7 @@ const PORT = parseInt(process.env.PORT || '3000', 10);
 
 export function startWeb() {
   const app = express();
-  app.use(express.json());
+  app.use(express.json({ limit: '1mb' }));
   app.use(express.static(join(__dirname, '..', 'public')));
 
   // ── GET /api/pairs ─────────────────────────────────────────────────────────
@@ -24,6 +24,12 @@ export function startWeb() {
 
     if (!telegramChatId || !discordChannelId || !discordWebhookUrl) {
       return res.status(400).json({ error: 'telegramChatId, discordChannelId and discordWebhookUrl are required.' });
+    }
+
+    // Validate Discord webhook URL format
+    if (!discordWebhookUrl.startsWith('https://discord.com/api/webhooks/') &&
+        !discordWebhookUrl.startsWith('https://discordapp.com/api/webhooks/')) {
+      return res.status(400).json({ error: 'discordWebhookUrl must be a valid Discord webhook URL.' });
     }
 
     const pair = {
