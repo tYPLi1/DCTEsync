@@ -1203,7 +1203,8 @@ async function loadSettings() {
           lockBtn.classList.remove('unlocked');
         }
       } else if (el.name === 'TRANSLATION_ENABLED') {
-        const active = cfg['TRANSLATION_ENABLED'] === 'true';
+        // Default to enabled when the key hasn't been explicitly set yet
+        const active = cfg['TRANSLATION_ENABLED'] !== 'false';
         el.checked = active;
         updateTranslationStatus(active);
       } else if (cfg[el.name] !== undefined) {

@@ -51,7 +51,10 @@ function isDcAllowed(mediaSync, category) {
 
 async function onTelegramMessage({ chatId, senderName, avatarUrl, text, media }) {
   const pair = getPairByTelegramId(chatId);
-  if (!pair) return;
+  if (!pair) {
+    console.log(`[bridge] TG→DC | no pair for chatId=${chatId} — message ignored`);
+    return;
+  }
 
   // ── Text-only ──────────────────────────────────────────────────────────────
   if (!media) {

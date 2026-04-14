@@ -82,41 +82,59 @@ export function startWeb() {
       return res.status(400).json({ error: 'discordWebhookUrl must be a valid Discord webhook URL.' });
     }
 
-    // ── Verify the Telegram bot can read messages in the target group ──────────
-    // Two valid configurations allow the bot to receive ALL group messages:
+    // ── Verify the Telegram bot can read messages in the target chat ───────────
+    // Supports groups, supergroups, and channels.
+    //
+    // For groups/supergroups, at least one of the following must be true:
     //   A) Privacy mode disabled globally (BotFather → Bot Settings → Group Privacy → Disable)
     //      → getMe() returns can_read_all_group_messages = true
     //   B) Bot is an administrator of this specific group
     //      → getChatMember() returns status "creator" or "administrator"
-    // If neither applies, the bot only receives /commands and the bridge is silent.
+    //
+    // For channels the bot must be an admin (required to post there anyway).
     try {
-      const me     = await bot.telegram.getMe();
+      const [me, chat] = await Promise.all([
+        bot.telegram.getMe(),
+        bot.telegram.getChat(String(telegramChatId))
+      ]);
       const member = await bot.telegram.getChatMember(String(telegramChatId), me.id);
+      const isAdmin = ['creator', 'administrator'].includes(member.status);
 
-      const privacyOff  = me.can_read_all_group_messages === true;          // (A)
-      const isAdmin     = ['creator', 'administrator'].includes(member.status); // (B)
-
-      if (!privacyOff && !isAdmin) {
-        console.warn(
-          `[web] Pair rejected: bot cannot read all messages in ${telegramChatId} ` +
-          `(status=${member.status}, can_read_all=${me.can_read_all_group_messages})`
-        );
-        return res.status(400).json({
-          error:
-            `The bot cannot read regular messages in this group (status: "${member.status}"). ` +
-            'Fix one of these: ' +
-            '(A) Make the bot an administrator of this group, OR ' +
-            '(B) Disable privacy mode globally via BotFather: ' +
-            '@BotFather → /mybots → your bot → Bot Settings → Group Privacy → Turn off.'
-        });
+      if (chat.type === 'channel') {
+        // Channels: bot must be admin (to post) – privacy mode doesn't apply
+        if (!isAdmin) {
+          console.warn(`[web] Pair rejected: bot is not admin in channel ${telegramChatId} (status=${member.status})`);
+          return res.status(400).json({
+            error:
+              `The bot is not an administrator of this channel (status: "${member.status}"). ` +
+              'Add the bot as an admin with "Post Messages" permission.'
+          });
+        }
+      } else {
+        // Groups / supergroups: need privacy off OR admin status
+        const privacyOff = me.can_read_all_group_messages === true;
+        if (!privacyOff && !isAdmin) {
+          console.warn(
+            `[web] Pair rejected: bot cannot read all messages in ${telegramChatId} ` +
+            `(status=${member.status}, can_read_all=${me.can_read_all_group_messages})`
+          );
+          return res.status(400).json({
+            error:
+              `The bot cannot read regular messages in this group (status: "${member.status}"). ` +
+              'Fix one of these: ' +
+              '(A) Make the bot an administrator of this group, OR ' +
+              '(B) Disable privacy mode globally via BotFather: ' +
+              '@BotFather → /mybots → your bot → Bot Settings → Group Privacy → Turn off.'
+          });
+        }
       }
     } catch (err) {
       const msg = err?.response?.description ?? err.message;
-      console.warn(`[web] Telegram group check failed for ${telegramChatId}: ${msg}`);
+      console.warn(`[web] Telegram chat check failed for ${telegramChatId}: ${msg}`);
       return res.status(400).json({
         error:
-          `Cannot access Telegram group ${telegramChatId}: ${msg}. ` +
-          'Make sure the bot is already a member of the group before adding the pair.'
+          `Cannot access Telegram chat ${telegramChatId}: ${msg}. ` +
+          'Make sure the bot is already a member of the group/channel before adding the pair.'
       });
     }
 
