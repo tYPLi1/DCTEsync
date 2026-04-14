@@ -14,6 +14,7 @@ A self-hosted bridge bot that syncs messages between Telegram groups and Discord
 - **Loop prevention** — webhook and bot messages are automatically ignored on both sides
 - **Web dashboard** — manage all pairs, translation and media settings at `http://your-host:PORT`
 - **AI translation** — 7 providers, per pair, per direction, disabled by default
+- **Pair validation** — the dashboard verifies bot access to the Telegram group when adding a pair and shows a clear error if something is misconfigured
 - **Docker + LXC ready** — works in Docker, docker-compose, or directly in a Proxmox LXC container
 
 ---
@@ -48,8 +49,8 @@ A self-hosted bridge bot that syncs messages between Telegram groups and Discord
 | Other audio | Telegram audio |
 | Documents / other files | Telegram document |
 
-> Files larger than **25 MB** cannot be uploaded to Discord webhooks.
-> Files larger than **20 MB** cannot be downloaded via the Telegram Bot API.
+> **File size limit: 20 MB** — the Telegram Bot API can only download files up to 20 MB via `getFile`.
+> This is the effective ceiling for both directions (lower than Discord's 25 MB webhook limit).
 > Oversized files are replaced with a text notice.
 
 Each type can be toggled on/off **per pair** and **per direction** in the dashboard — no restart needed.
@@ -70,6 +71,8 @@ Translation is **disabled by default**. You can enable it per pair and per direc
 | LibreTranslate | Translation API | — (optional) | **Yes** |
 | Microsoft Translator | Translation API | `MICROSOFT_TRANSLATOR_KEY` | No |
 
+The Anthropic provider uses **prompt caching** — the translation instruction is cached across calls, reducing latency and token costs for repeated translations.
+
 ---
 
 ## Quick Start
@@ -85,6 +88,8 @@ docker compose up -d
 ```
 
 Dashboard: `http://localhost:3000`
+
+To use a different port, set `PORT=8080` (or any value) in your `.env` — both the app and the container port mapping update automatically.
 
 ---
 
@@ -132,12 +137,22 @@ It then optionally installs dependencies and sets up a **systemd auto-start serv
 
 1. Open [@BotFather](https://t.me/BotFather) → `/newbot`
 2. Copy the token → `TELEGRAM_TOKEN`
-3. Add the bot to your group and make it an **admin** (so it can read messages)
-4. Get the group's chat ID: add the bot, send a message, then call:
+3. Add the bot to your group
+4. **Allow the bot to read all messages** — choose one of:
+   - **(Recommended) Make the bot an administrator** of the group (no special admin permissions needed, just the admin role)
+   - **Or** disable privacy mode globally: [@BotFather](https://t.me/BotFather) → `/mybots` → your bot → **Bot Settings → Group Privacy → Turn off**
+
+   > **Why?** Telegram bots run in *privacy mode* by default — they only receive `/commands`,
+   > not regular messages. Without one of these two fixes the bridge receives nothing and
+   > appears silently broken. The dashboard will show an error if neither condition is met
+   > when you try to add the pair.
+
+5. Get the group's chat ID: after adding the bot, send a message, then call:
    ```
    https://api.telegram.org/bot<TOKEN>/getUpdates
    ```
-   Look for `"chat":{"id": -100xxxxxxxxx}` — that's your `telegramChatId`
+   Look for `"chat":{"id": -100xxxxxxxxx}` — that's your `telegramChatId`.
+   Supergroup IDs start with `-100`.
 
 ### Discord Bot
 
@@ -162,6 +177,8 @@ Open `http://your-host:PORT` after starting the bridge.
 **Add a pair:**
 - Enter a label (optional), Telegram Chat ID, Discord Channel ID and Discord Webhook URL
 - Click **Add Pair**
+- The dashboard calls the Telegram API to confirm the bot can read messages in that group.
+  If the bot is not an admin and privacy mode is on, you will see a clear error explaining how to fix it.
 
 **Configure media sync per pair** (click **Media** button):
 - **TG → Discord**: toggle each Telegram type individually — photos, videos, audio, voice, documents, stickers, animations, video notes, locations, polls
@@ -183,10 +200,10 @@ Open `http://your-host:PORT` after starting the bridge.
 |---|---|---|---|
 | `TELEGRAM_TOKEN` | Yes | — | BotFather token |
 | `DISCORD_TOKEN` | Yes | — | Discord bot token |
-| `PORT` | No | `3000` | Dashboard port |
+| `PORT` | No | `3000` | Dashboard port (also controls Docker port mapping) |
 | `DATA_FILE` | No | `./data/config.json` | Path to config storage |
-| `ANTHROPIC_API_KEY` | No | — | Claude translation |
-| `OPENAI_API_KEY` | No | — | OpenAI translation |
+| `ANTHROPIC_API_KEY` | No | — | Claude Haiku translation (with prompt caching) |
+| `OPENAI_API_KEY` | No | — | OpenAI GPT-4o-mini translation |
 | `OLLAMA_BASE_URL` | No | `http://localhost:11434` | Ollama server URL |
 | `OLLAMA_MODEL` | No | `llama3` | Ollama model name |
 | `GOOGLE_TRANSLATE_API_KEY` | No | — | Google Cloud Translation |
@@ -236,10 +253,10 @@ sudo systemctl stop tg-bridge       # stop
 │   ├── bridge.js        # Entry point — wires everything together
 │   ├── telegram.js      # Telegraf bot (receive + send all media types)
 │   ├── discord.js       # Discord.js bot + webhook sender (with file upload)
-│   ├── media.js         # Download helpers, MIME classification
-│   ├── translation.js   # 7-provider translation module
+│   ├── media.js         # Download helpers, MIME classification, size limits
+│   ├── translation.js   # 7-provider translation module with Anthropic prompt caching
 │   ├── store.js         # JSON config read/write
-│   └── web.js           # Express dashboard + REST API
+│   └── web.js           # Express dashboard + REST API (with Telegram bot validation)
 ├── public/
 │   └── index.html       # Dashboard UI (single file, no framework)
 ├── data/
@@ -256,6 +273,7 @@ sudo systemctl stop tg-bridge       # stop
 
 - **Discord → Telegram identity**: Telegram does not allow bots to impersonate users. Messages always arrive as the bot with a `[Username]:` prefix. A Telegram userbot would be required to bypass this.
 - **Animated stickers (TGS/Lottie)**: Cannot be rendered by Discord. Forwarded as `[Sticker 😄]` text instead.
-- **File size limits**: 20 MB (Telegram Bot API download) and 25 MB (Discord webhook upload). Larger files are skipped with a notice.
+- **File size limit**: 20 MB — the Telegram Bot API `getFile` endpoint caps at 20 MB. Files over this limit are replaced with a text notice in both directions.
 - **Media groups / albums**: Each photo in a Telegram album is forwarded as a separate message.
 - **Discord embeds**: Tenor GIFs, YouTube previews and other link embeds are not forwarded (no attachment data available).
+- **Anonymous group admins**: Messages posted anonymously via a linked channel are treated as bot messages and skipped.
