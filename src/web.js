@@ -2,7 +2,7 @@ import express from 'express';
 import { fileURLToPath } from 'url';
 import { dirname, join } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION } from './store.js';
+import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC } from './store.js';
 import { getProviderStatus } from './translation.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -29,10 +29,11 @@ export function startWeb() {
     const pair = {
       id: uuidv4(),
       label: label || '',
-      telegramChatId: String(telegramChatId),
-      discordChannelId: String(discordChannelId),
+      telegramChatId:    String(telegramChatId),
+      discordChannelId:  String(discordChannelId),
       discordWebhookUrl,
-      translation: { ...DEFAULT_TRANSLATION }
+      translation: { ...DEFAULT_TRANSLATION },
+      mediaSync:   JSON.parse(JSON.stringify(DEFAULT_MEDIA_SYNC))
     };
 
     addPair(pair);
@@ -49,25 +50,42 @@ export function startWeb() {
   });
 
   // ── PATCH /api/pairs/:id/translation ──────────────────────────────────────
-  // Update translation settings for a specific pair.
-  // Body: full or partial translation config object.
   app.patch('/api/pairs/:id/translation', (req, res) => {
     const existing = getPairs().find(p => p.id === req.params.id);
     if (!existing) return res.status(404).json({ error: 'Pair not found.' });
 
     const merged = mergeTranslation(existing.translation ?? { ...DEFAULT_TRANSLATION }, req.body);
-    const ok = updatePair(req.params.id, { translation: merged });
-    if (!ok) return res.status(404).json({ error: 'Pair not found.' });
+    if (!updatePair(req.params.id, { translation: merged })) {
+      return res.status(404).json({ error: 'Pair not found.' });
+    }
 
-    console.log(`[web] Translation config updated for pair: ${req.params.id}`);
+    console.log(`[web] Translation updated: ${req.params.id}`);
+    res.json(merged);
+  });
+
+  // ── PATCH /api/pairs/:id/media-sync ───────────────────────────────────────
+  // Update individual media type toggles for a pair.
+  // Body example: { "tgToDiscord": { "sticker": false } }
+  app.patch('/api/pairs/:id/media-sync', (req, res) => {
+    const existing = getPairs().find(p => p.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Pair not found.' });
+
+    const base   = existing.mediaSync ?? JSON.parse(JSON.stringify(DEFAULT_MEDIA_SYNC));
+    const merged = mergeMediaSync(base, req.body);
+
+    if (!updatePair(req.params.id, { mediaSync: merged })) {
+      return res.status(404).json({ error: 'Pair not found.' });
+    }
+
+    console.log(`[web] MediaSync updated: ${req.params.id}`);
     res.json(merged);
   });
 
   // ── GET /api/status ───────────────────────────────────────────────────────
   app.get('/api/status', (_req, res) => {
     res.json({
-      uptime: process.uptime(),
-      pairs: getPairs().length,
+      uptime:               process.uptime(),
+      pairs:                getPairs().length,
       translationProviders: getProviderStatus()
     });
   });
@@ -77,18 +95,32 @@ export function startWeb() {
   });
 }
 
-// Deep-merge translation config — only overwrite keys that are provided
+// ── Merge helpers ─────────────────────────────────────────────────────────────
+
 function mergeTranslation(current, incoming) {
   return {
-    enabled: incoming.enabled ?? current.enabled,
+    enabled:  incoming.enabled  ?? current.enabled,
     provider: incoming.provider ?? current.provider,
     tgToDiscord: {
-      enabled: incoming.tgToDiscord?.enabled ?? current.tgToDiscord?.enabled,
+      enabled:        incoming.tgToDiscord?.enabled        ?? current.tgToDiscord?.enabled,
       targetLanguage: incoming.tgToDiscord?.targetLanguage ?? current.tgToDiscord?.targetLanguage
     },
     discordToTg: {
-      enabled: incoming.discordToTg?.enabled ?? current.discordToTg?.enabled,
+      enabled:        incoming.discordToTg?.enabled        ?? current.discordToTg?.enabled,
       targetLanguage: incoming.discordToTg?.targetLanguage ?? current.discordToTg?.targetLanguage
+    }
+  };
+}
+
+function mergeMediaSync(current, incoming) {
+  return {
+    tgToDiscord: {
+      ...current.tgToDiscord,
+      ...(incoming.tgToDiscord ?? {})
+    },
+    discordToTg: {
+      ...current.discordToTg,
+      ...(incoming.discordToTg ?? {})
     }
   };
 }

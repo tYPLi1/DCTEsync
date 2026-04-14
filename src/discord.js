@@ -2,11 +2,7 @@ import { Client, GatewayIntentBits, Events } from 'discord.js';
 import fetch from 'node-fetch';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
-
-if (!DISCORD_TOKEN) {
-  console.error('[discord] DISCORD_TOKEN is not set. Exiting.');
-  process.exit(1);
-}
+if (!DISCORD_TOKEN) { console.error('[discord] DISCORD_TOKEN is not set. Exiting.'); process.exit(1); }
 
 export const client = new Client({
   intents: [
@@ -16,31 +12,41 @@ export const client = new Client({
   ]
 });
 
+// ── Start ─────────────────────────────────────────────────────────────────────
+
 /**
- * Start the Discord bot and register the message handler.
+ * Start the Discord bot.
  *
- * @param {(channelId: string, senderName: string, avatarUrl: string|null, text: string) => void} onMessage
+ * @param {(msg: object) => void} onMessage
+ *   Called with { channelId, senderName, avatarUrl, text, attachments }
+ *   attachments: Array<{ url, name, contentType, size }>
  */
 export function startDiscord(onMessage) {
-  client.once(Events.ClientReady, (c) => {
+  client.once(Events.ClientReady, c => {
     console.log(`[discord] Logged in as ${c.user.tag}`);
   });
 
-  client.on(Events.MessageCreate, (message) => {
-    // Ignore all bots (including webhook messages forwarded from Telegram)
-    if (message.author.bot) return;
+  client.on(Events.MessageCreate, message => {
+    if (message.author.bot) return; // ignore bots and webhook messages
+    if (!message.guild) return;     // DMs only
 
-    // Only handle guild (server) messages
-    if (!message.guild) return;
+    const text        = message.content || null;
+    const attachments = [...message.attachments.values()].map(a => ({
+      url:         a.url,
+      name:        a.name,
+      contentType: a.contentType ?? null,
+      size:        a.size
+    }));
 
-    const text = message.content;
-    if (!text) return;
+    if (!text && attachments.length === 0) return;
 
-    const channelId = String(message.channel.id);
-    const senderName = message.member?.displayName || message.author.username;
-    const avatarUrl = message.author.displayAvatarURL({ size: 128, extension: 'png' });
-
-    onMessage(channelId, senderName, avatarUrl, text);
+    onMessage({
+      channelId:   String(message.channel.id),
+      senderName:  message.member?.displayName || message.author.username,
+      avatarUrl:   message.author.displayAvatarURL({ size: 128, extension: 'png' }),
+      text,
+      attachments
+    });
   });
 
   client.login(DISCORD_TOKEN).catch(err => {
@@ -49,34 +55,53 @@ export function startDiscord(onMessage) {
   });
 }
 
+// ── Send ──────────────────────────────────────────────────────────────────────
+
 /**
- * Send a message to Discord via webhook, impersonating a Telegram user.
+ * Send a message to Discord via webhook.
+ * Supports text-only and single file upload (with optional text).
  *
  * @param {string} webhookUrl
- * @param {string} username      Display name (Telegram first name)
- * @param {string|null} avatarUrl Telegram profile picture URL
- * @param {string} text
+ * @param {string} username        Display name
+ * @param {string|null} avatarUrl
+ * @param {string|null} text
+ * @param {{ buffer: Buffer, mimeType: string, fileName: string }|null} fileAttachment
  */
-export async function sendToDiscord(webhookUrl, username, avatarUrl, text) {
-  const body = {
-    username: username.slice(0, 80),  // Discord limit: 80 chars
-    content: text
-  };
-
-  if (avatarUrl) body.avatar_url = avatarUrl;
-
+export async function sendToDiscord(webhookUrl, username, avatarUrl, text, fileAttachment = null) {
   try {
-    const res = await fetch(webhookUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      console.error(`[discord] Webhook error ${res.status}:`, errText);
+    if (fileAttachment) {
+      await sendWithFile(webhookUrl, username, avatarUrl, text, fileAttachment);
+    } else {
+      await sendText(webhookUrl, username, avatarUrl, text);
     }
   } catch (err) {
-    console.error('[discord] Failed to send via webhook:', err.message);
+    console.error('[discord] Webhook error:', err.message);
   }
+}
+
+async function sendText(webhookUrl, username, avatarUrl, text) {
+  if (!text) return;
+  const body = { username: username.slice(0, 80), content: text };
+  if (avatarUrl) body.avatar_url = avatarUrl;
+
+  const res = await fetch(webhookUrl, {
+    method:  'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body:    JSON.stringify(body)
+  });
+
+  if (!res.ok) console.error(`[discord] Webhook text error ${res.status}:`, await res.text());
+}
+
+async function sendWithFile(webhookUrl, username, avatarUrl, text, { buffer, mimeType, fileName }) {
+  const payload = { username: username.slice(0, 80), content: text || '' };
+  if (avatarUrl) payload.avatar_url = avatarUrl;
+
+  // FormData is available globally in Node 18+
+  const form = new FormData();
+  form.append('payload_json', JSON.stringify(payload));
+  form.append('files[0]', new Blob([buffer], { type: mimeType }), fileName);
+
+  const res = await fetch(webhookUrl, { method: 'POST', body: form });
+  if (!res.ok) console.error(`[discord] Webhook file error ${res.status}:`, await res.text());
 }

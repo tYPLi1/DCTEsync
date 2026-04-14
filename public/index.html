@@ -246,6 +246,42 @@
     .save-status { font-size: 0.78rem; color: var(--success); opacity: 0; transition: opacity .3s; }
     .save-status.visible { opacity: 1; }
 
+    /* ── MEDIA PANEL ─────────────────────────────────────────────────────── */
+    .media-panel {
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+      padding: 16px 20px;
+      display: none;
+    }
+
+    .media-panel.open { display: block; }
+
+    .media-panel h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 14px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+
+    .media-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 560px) { .media-grid { grid-template-columns: 1fr; } }
+
+    .media-section { display: flex; flex-direction: column; gap: 8px; }
+
+    .media-section h4 {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 4px;
+    }
+
     /* ── EMPTY STATE ─────────────────────────────────────────────────────── */
     #empty-state {
       text-align: center;
@@ -592,15 +628,129 @@ function buildTranslationPanel(pair) {
 async function saveTranslation(pairId, partial) {
   try {
     await api('PATCH', `/api/pairs/${pairId}/translation`, partial);
-    const el = document.getElementById(`save-status-${pairId}`);
-    if (el) {
-      el.classList.add('visible');
-      setTimeout(() => el.classList.remove('visible'), 1500);
-    }
+    flashSaved(`save-status-${pairId}`);
   } catch (err) {
     showToast(`Save failed: ${err.message}`, 'error');
   }
 }
+
+async function saveMediaSync(pairId, partial) {
+  try {
+    await api('PATCH', `/api/pairs/${pairId}/media-sync`, partial);
+    flashSaved(`media-save-status-${pairId}`);
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 'error');
+  }
+}
+
+function flashSaved(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.classList.add('visible');
+  setTimeout(() => el.classList.remove('visible'), 1500);
+}
+
+// ── Media panel ───────────────────────────────────────────────────────────────
+
+const TG_MEDIA_TYPES = [
+  { key: 'photo',     label: '🖼 Photos' },
+  { key: 'video',     label: '🎬 Videos' },
+  { key: 'audio',     label: '🎵 Audio files' },
+  { key: 'voice',     label: '🎙 Voice messages' },
+  { key: 'document',  label: '📄 Documents & files' },
+  { key: 'sticker',   label: '😄 Stickers' },
+  { key: 'animation', label: '🎞 Animations (GIFs)' },
+  { key: 'videoNote', label: '⭕ Video notes (round)' },
+  { key: 'location',  label: '📍 Locations' },
+  { key: 'poll',      label: '📊 Polls' },
+];
+
+const DC_MEDIA_TYPES = [
+  { key: 'image',    label: '🖼 Images' },
+  { key: 'video',    label: '🎬 Videos' },
+  { key: 'audio',    label: '🎵 Audio' },
+  { key: 'document', label: '📄 Documents & files' },
+];
+
+function buildMediaPanel(pair) {
+  const ms = pair.mediaSync ?? {
+    tgToDiscord: Object.fromEntries(TG_MEDIA_TYPES.map(t => [t.key, true])),
+    discordToTg: Object.fromEntries(DC_MEDIA_TYPES.map(t => [t.key, true]))
+  };
+
+  const panel = document.createElement('div');
+  panel.className = 'media-panel';
+  panel.id = `media-${pair.id}`;
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Media Sync — per type';
+  panel.appendChild(heading);
+
+  const grid = document.createElement('div');
+  grid.className = 'media-grid';
+
+  // TG → DC column
+  const tgCol = document.createElement('div');
+  tgCol.className = 'media-section';
+  const tgTitle = document.createElement('h4');
+  tgTitle.textContent = '🔵 Telegram → Discord';
+  tgCol.appendChild(tgTitle);
+
+  for (const { key, label } of TG_MEDIA_TYPES) {
+    const enabled = ms.tgToDiscord?.[key] !== false;
+    const row = document.createElement('div');
+    row.className = 'toggle-row';
+    const tog = toggle(`ms-tgdc-${pair.id}-${key}`, enabled, async (val) => {
+      await saveMediaSync(pair.id, { tgToDiscord: { [key]: val } });
+    });
+    const lbl = document.createElement('span');
+    lbl.className = 'toggle-label';
+    lbl.textContent = label;
+    row.appendChild(tog);
+    row.appendChild(lbl);
+    tgCol.appendChild(row);
+  }
+
+  // DC → TG column
+  const dcCol = document.createElement('div');
+  dcCol.className = 'media-section';
+  const dcTitle = document.createElement('h4');
+  dcTitle.textContent = '🟣 Discord → Telegram';
+  dcCol.appendChild(dcTitle);
+
+  for (const { key, label } of DC_MEDIA_TYPES) {
+    const enabled = ms.discordToTg?.[key] !== false;
+    const row = document.createElement('div');
+    row.className = 'toggle-row';
+    const tog = toggle(`ms-dctg-${pair.id}-${key}`, enabled, async (val) => {
+      await saveMediaSync(pair.id, { discordToTg: { [key]: val } });
+    });
+    const lbl = document.createElement('span');
+    lbl.className = 'toggle-label';
+    lbl.textContent = label;
+    row.appendChild(tog);
+    row.appendChild(lbl);
+    dcCol.appendChild(row);
+  }
+
+  grid.appendChild(tgCol);
+  grid.appendChild(dcCol);
+  panel.appendChild(grid);
+
+  // Save indicator
+  const footer = document.createElement('div');
+  footer.style.cssText = 'margin-top:12px;display:flex;justify-content:flex-end';
+  const saved = document.createElement('span');
+  saved.className = 'save-status';
+  saved.id = `media-save-status-${pair.id}`;
+  saved.textContent = '✓ Saved';
+  footer.appendChild(saved);
+  panel.appendChild(footer);
+
+  return panel;
+}
+
+// ── Render pair card ──────────────────────────────────────────────────────────
 
 function renderPair(pair) {
   const card = document.createElement('div');
@@ -635,25 +785,46 @@ function renderPair(pair) {
 
   const transBadge = document.createElement('span');
   transBadge.className = 'badge';
+  transBadge.id = `trans-badge-${pair.id}`;
   transBadge.style.cssText = pair.translation?.enabled
     ? 'background:rgba(87,242,135,.12);color:var(--success)'
     : 'background:var(--surface2);color:var(--muted)';
   transBadge.textContent = pair.translation?.enabled ? 'Translation ON' : 'Translation OFF';
-  transBadge.id = `trans-badge-${pair.id}`;
 
   ids.append(tgBadge, arrow, dcBadge, transBadge);
 
   const actions = document.createElement('div');
   actions.className = 'pair-actions';
 
+  // Helper: toggle panel open/close and update button label
+  function panelToggle(btnEl, panelId, openLabel = 'Close', closedLabel) {
+    const p = document.getElementById(panelId);
+    // Close other open panels on this card first
+    card.querySelectorAll('.translation-panel.open, .media-panel.open').forEach(el => {
+      if (el.id !== panelId) {
+        el.classList.remove('open');
+        // Reset sibling button text
+        const siblingBtn = card.querySelector(`[data-panel="${el.id}"]`);
+        if (siblingBtn) siblingBtn.textContent = siblingBtn.dataset.closed;
+      }
+    });
+    p.classList.toggle('open');
+    btnEl.textContent = p.classList.contains('open') ? openLabel : closedLabel;
+  }
+
   const transBtn = document.createElement('button');
   transBtn.className = 'btn-ghost btn-sm';
   transBtn.textContent = 'Translation';
-  transBtn.addEventListener('click', () => {
-    const p = document.getElementById(`trans-${pair.id}`);
-    p.classList.toggle('open');
-    transBtn.textContent = p.classList.contains('open') ? 'Close' : 'Translation';
-  });
+  transBtn.dataset.panel  = `trans-${pair.id}`;
+  transBtn.dataset.closed = 'Translation';
+  transBtn.addEventListener('click', () => panelToggle(transBtn, `trans-${pair.id}`, 'Close ×', 'Translation'));
+
+  const mediaBtn = document.createElement('button');
+  mediaBtn.className = 'btn-ghost btn-sm';
+  mediaBtn.textContent = 'Media';
+  mediaBtn.dataset.panel  = `media-${pair.id}`;
+  mediaBtn.dataset.closed = 'Media';
+  mediaBtn.addEventListener('click', () => panelToggle(mediaBtn, `media-${pair.id}`, 'Close ×', 'Media'));
 
   const delBtn = document.createElement('button');
   delBtn.className = 'btn-danger btn-sm';
@@ -662,7 +833,7 @@ function renderPair(pair) {
     if (!confirm('Remove this pair?')) return;
     try {
       await api('DELETE', `/api/pairs/${pair.id}`);
-      document.getElementById(`pair-${pair.id}`)?.remove();
+      card.remove();
       showToast('Pair removed.', 'ok');
       checkEmpty();
       refreshStatus();
@@ -671,10 +842,11 @@ function renderPair(pair) {
     }
   });
 
-  actions.append(transBtn, delBtn);
+  actions.append(transBtn, mediaBtn, delBtn);
   header.append(ids, actions);
   card.appendChild(header);
   card.appendChild(buildTranslationPanel(pair));
+  card.appendChild(buildMediaPanel(pair));
   return card;
 }
 

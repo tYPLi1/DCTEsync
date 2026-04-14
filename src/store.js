@@ -82,3 +82,31 @@ export const DEFAULT_TRANSLATION = {
     targetLanguage: 'English'
   }
 };
+
+/**
+ * Default media sync config applied to every new pair.
+ * All types are ON by default — the user can disable individual types per pair.
+ *
+ * tgToDiscord: which Telegram message types to forward to Discord
+ * discordToTg: which Discord attachment categories to forward to Telegram
+ */
+export const DEFAULT_MEDIA_SYNC = {
+  tgToDiscord: {
+    photo:     true,
+    video:     true,
+    audio:     true,
+    voice:     true,
+    document:  true,
+    sticker:   true,
+    animation: true,
+    videoNote: true,
+    location:  true,
+    poll:      true
+  },
+  discordToTg: {
+    image:    true,
+    video:    true,
+    audio:    true,
+    document: true
+  }
+};
