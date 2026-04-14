@@ -34,20 +34,31 @@ export function startWeb() {
     }
 
     // ── Verify the Telegram bot can read messages in the target group ──────────
-    // Bots in privacy mode only receive commands, not regular messages.
-    // Being an admin (or having privacy mode disabled globally via BotFather)
-    // is required for the bridge to work.
+    // Two valid configurations allow the bot to receive ALL group messages:
+    //   A) Privacy mode disabled globally (BotFather → Bot Settings → Group Privacy → Disable)
+    //      → getMe() returns can_read_all_group_messages = true
+    //   B) Bot is an administrator of this specific group
+    //      → getChatMember() returns status "creator" or "administrator"
+    // If neither applies, the bot only receives /commands and the bridge is silent.
     try {
       const me     = await bot.telegram.getMe();
       const member = await bot.telegram.getChatMember(String(telegramChatId), me.id);
 
-      if (!['creator', 'administrator'].includes(member.status)) {
-        console.warn(`[web] Pair rejected: bot is not admin in ${telegramChatId} (status=${member.status})`);
+      const privacyOff  = me.can_read_all_group_messages === true;          // (A)
+      const isAdmin     = ['creator', 'administrator'].includes(member.status); // (B)
+
+      if (!privacyOff && !isAdmin) {
+        console.warn(
+          `[web] Pair rejected: bot cannot read all messages in ${telegramChatId} ` +
+          `(status=${member.status}, can_read_all=${me.can_read_all_group_messages})`
+        );
         return res.status(400).json({
           error:
-            `The Telegram bot is a "${member.status}" in this group, not an administrator. ` +
-            'Without admin rights the bot operates in privacy mode and cannot read regular messages. ' +
-            'Please make the bot an administrator of the group first, then add the pair.'
+            `The bot cannot read regular messages in this group (status: "${member.status}"). ` +
+            'Fix one of these: ' +
+            '(A) Make the bot an administrator of this group, OR ' +
+            '(B) Disable privacy mode globally via BotFather: ' +
+            '@BotFather → /mybots → your bot → Bot Settings → Group Privacy → Turn off.'
         });
       }
     } catch (err) {
