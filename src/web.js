@@ -58,10 +58,32 @@ function writeEnvVars(updates) {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = parseInt(process.env.PORT || '3000', 10);
 
+/**
+ * One-time migration: resolve any @username telegramChatIds to numeric IDs.
+ * Runs on startup so existing pairs created with a username work immediately.
+ */
+async function migrateUsernameChatIds() {
+  const pairs = getPairs();
+  for (const pair of pairs) {
+    const id = String(pair.telegramChatId);
+    if (!id.startsWith('@')) continue;
+    try {
+      const chatInfo = await bot.telegram.getChat(id);
+      updatePair(pair.id, { telegramChatId: String(chatInfo.id) });
+      console.log(`[web] Migration: resolved ${id} → ${chatInfo.id} for pair ${pair.id}`);
+    } catch (err) {
+      console.warn(`[web] Migration: could not resolve ${id} for pair ${pair.id}: ${err?.response?.description ?? err.message}`);
+    }
+  }
+}
+
 export function startWeb() {
   const app = express();
   app.use(express.json({ limit: '1mb' }));
   app.use(express.static(join(__dirname, '..', 'public')));
+
+  // Migrate any username-based chat IDs to numeric IDs on startup
+  migrateUsernameChatIds().catch(err => console.warn('[web] Migration error:', err.message));
 
   // ── GET /api/pairs ─────────────────────────────────────────────────────────
   app.get('/api/pairs', (_req, res) => {
@@ -82,6 +104,22 @@ export function startWeb() {
       return res.status(400).json({ error: 'discordWebhookUrl must be a valid Discord webhook URL.' });
     }
 
+    // ── Resolve @username → numeric chat ID ───────────────────────────────────
+    // Telegram delivers incoming updates with numeric IDs only. If the user
+    // supplied a @username we resolve it once here so the stored ID matches.
+    let resolvedChatId = String(telegramChatId).trim();
+    if (resolvedChatId.startsWith('@')) {
+      try {
+        const chatInfo = await bot.telegram.getChat(resolvedChatId);
+        console.log(`[web] Resolved ${resolvedChatId} → ${chatInfo.id} (${chatInfo.title || chatInfo.username || ''})`);
+        resolvedChatId = String(chatInfo.id);
+      } catch (err) {
+        return res.status(400).json({
+          error: `Cannot resolve Telegram username ${resolvedChatId}: ${err?.response?.description ?? err.message}`
+        });
+      }
+    }
+
     // ── Verify the Telegram bot can read messages in the target chat ───────────
     // Supports groups, supergroups, and channels.
     //
@@ -95,15 +133,15 @@ export function startWeb() {
     try {
       const [me, chat] = await Promise.all([
         bot.telegram.getMe(),
-        bot.telegram.getChat(String(telegramChatId))
+        bot.telegram.getChat(resolvedChatId)
       ]);
-      const member = await bot.telegram.getChatMember(String(telegramChatId), me.id);
+      const member = await bot.telegram.getChatMember(resolvedChatId, me.id);
       const isAdmin = ['creator', 'administrator'].includes(member.status);
 
       if (chat.type === 'channel') {
         // Channels: bot must be admin (to post) – privacy mode doesn't apply
         if (!isAdmin) {
-          console.warn(`[web] Pair rejected: bot is not admin in channel ${telegramChatId} (status=${member.status})`);
+          console.warn(`[web] Pair rejected: bot is not admin in channel ${resolvedChatId} (status=${member.status})`);
           return res.status(400).json({
             error:
               `The bot is not an administrator of this channel (status: "${member.status}"). ` +
@@ -115,7 +153,7 @@ export function startWeb() {
         const privacyOff = me.can_read_all_group_messages === true;
         if (!privacyOff && !isAdmin) {
           console.warn(
-            `[web] Pair rejected: bot cannot read all messages in ${telegramChatId} ` +
+            `[web] Pair rejected: bot cannot read all messages in ${resolvedChatId} ` +
             `(status=${member.status}, can_read_all=${me.can_read_all_group_messages})`
           );
           return res.status(400).json({
@@ -130,10 +168,10 @@ export function startWeb() {
       }
     } catch (err) {
       const msg = err?.response?.description ?? err.message;
-      console.warn(`[web] Telegram chat check failed for ${telegramChatId}: ${msg}`);
+      console.warn(`[web] Telegram chat check failed for ${resolvedChatId}: ${msg}`);
       return res.status(400).json({
         error:
-          `Cannot access Telegram chat ${telegramChatId}: ${msg}. ` +
+          `Cannot access Telegram chat ${resolvedChatId}: ${msg}. ` +
           'Make sure the bot is already a member of the group/channel before adding the pair.'
       });
     }
@@ -141,7 +179,7 @@ export function startWeb() {
     const pair = {
       id: uuidv4(),
       label: label || '',
-      telegramChatId:    String(telegramChatId),
+      telegramChatId:    resolvedChatId,
       discordChannelId:  String(discordChannelId),
       discordWebhookUrl,
       translation: { ...DEFAULT_TRANSLATION },
