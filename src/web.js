@@ -192,6 +192,67 @@ export function startWeb() {
     res.status(201).json(pair);
   });
 
+  // ── PATCH /api/pairs/:id ──────────────────────────────────────────────────
+  // Update basic pair fields: label, telegramChatId, discordChannelId, discordWebhookUrl.
+  // Re-validates Telegram access whenever the chat ID changes.
+  app.patch('/api/pairs/:id', async (req, res) => {
+    const existing = getPairs().find(p => p.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Pair not found.' });
+
+    const { label, telegramChatId, discordChannelId, discordWebhookUrl } = req.body;
+    const updates = {};
+
+    if (label !== undefined)  updates.label = String(label);
+
+    if (discordWebhookUrl !== undefined && discordWebhookUrl !== existing.discordWebhookUrl) {
+      if (!discordWebhookUrl.startsWith('https://discord.com/api/webhooks/') &&
+          !discordWebhookUrl.startsWith('https://discordapp.com/api/webhooks/')) {
+        return res.status(400).json({ error: 'discordWebhookUrl must be a valid Discord webhook URL.' });
+      }
+      updates.discordWebhookUrl = discordWebhookUrl;
+    }
+
+    if (discordChannelId !== undefined && String(discordChannelId) !== existing.discordChannelId) {
+      updates.discordChannelId = String(discordChannelId);
+    }
+
+    if (telegramChatId !== undefined && String(telegramChatId) !== existing.telegramChatId) {
+      const newId = String(telegramChatId);
+      try {
+        const [me, chat] = await Promise.all([
+          bot.telegram.getMe(),
+          bot.telegram.getChat(newId)
+        ]);
+        const member  = await bot.telegram.getChatMember(newId, me.id);
+        const isAdmin = ['creator', 'administrator'].includes(member.status);
+        if (chat.type === 'channel') {
+          if (!isAdmin) return res.status(400).json({ error: 'Bot is not admin in this channel.' });
+        } else {
+          const privacyOff = me.can_read_all_group_messages === true;
+          if (!privacyOff && !isAdmin) {
+            return res.status(400).json({
+              error: 'Bot cannot read messages in this group. Make it admin or disable privacy mode.'
+            });
+          }
+        }
+      } catch (err) {
+        return res.status(400).json({
+          error: `Cannot access Telegram chat ${newId}: ${err?.response?.description ?? err.message}`
+        });
+      }
+      updates.telegramChatId = newId;
+    }
+
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No changes provided.' });
+    }
+
+    updatePair(req.params.id, updates);
+    console.log(`[web] Pair updated: ${req.params.id} — ${Object.keys(updates).join(', ')}`);
+    const updated = getPairs().find(p => p.id === req.params.id);
+    res.json(updated);
+  });
+
   // ── DELETE /api/pairs/:id ──────────────────────────────────────────────────
   app.delete('/api/pairs/:id', (req, res) => {
     const removed = removePair(req.params.id);

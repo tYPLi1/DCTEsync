@@ -282,6 +282,30 @@
       margin-bottom: 4px;
     }
 
+    /* ── EDIT PANEL ──────────────────────────────────────────────────────── */
+    .edit-panel {
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+      padding: 16px 20px;
+      display: none;
+    }
+    .edit-panel.open { display: block; }
+    .edit-panel h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 14px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .edit-panel .form-grid { margin-bottom: 14px; }
+    .edit-footer {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 12px;
+    }
+
     /* ── ROLES PANEL ─────────────────────────────────────────────────────── */
     .roles-panel {
       border-top: 1px solid var(--border);
@@ -1056,6 +1080,91 @@ function buildMediaPanel(pair) {
   return panel;
 }
 
+// ── Edit panel ────────────────────────────────────────────────────────────────
+
+function buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }) {
+  const panel = document.createElement('div');
+  panel.className = 'edit-panel';
+  panel.id = `edit-${pair.id}`;
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Verbindung bearbeiten';
+  panel.appendChild(heading);
+
+  const grid = document.createElement('div');
+  grid.className = 'form-grid';
+
+  function field(id, labelText, value, placeholder = '', wide = false) {
+    const g = document.createElement('div');
+    g.className = wide ? 'form-group wide' : 'form-group';
+    const lbl = document.createElement('label');
+    lbl.htmlFor = id;
+    lbl.textContent = labelText;
+    const inp = document.createElement('input');
+    inp.type = 'text';
+    inp.id = id;
+    inp.value = value || '';
+    inp.placeholder = placeholder;
+    g.appendChild(lbl);
+    g.appendChild(inp);
+    return { group: g, input: inp };
+  }
+
+  const { group: gLabel,  input: iLabel  } = field(`e-label-${pair.id}`,  'Label (optional)',      pair.label,             'z.B. General');
+  const { group: gTg,    input: iTg     } = field(`e-tg-${pair.id}`,     'Telegram Chat ID',      pair.telegramChatId,    '-1001234567890');
+  const { group: gDc,    input: iDc     } = field(`e-dc-${pair.id}`,     'Discord Channel ID',    pair.discordChannelId,  '123456789012345678');
+  const { group: gWh,    input: iWh     } = field(`e-wh-${pair.id}`,     'Discord Webhook URL',   pair.discordWebhookUrl, 'https://discord.com/api/webhooks/…', true);
+
+  grid.append(gLabel, gTg, gDc, gWh);
+  panel.appendChild(grid);
+
+  const footer = document.createElement('div');
+  footer.className = 'edit-footer';
+  const status = document.createElement('span');
+  status.className = 'save-status';
+  status.id = `edit-save-status-${pair.id}`;
+  status.textContent = '✓ Gespeichert';
+
+  const saveBtn = document.createElement('button');
+  saveBtn.className = 'btn-primary btn-sm';
+  saveBtn.textContent = 'Speichern';
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    try {
+      const body = {};
+      if (iLabel.value.trim() !== (pair.label || ''))          body.label            = iLabel.value.trim();
+      if (iTg.value.trim()    !== pair.telegramChatId)         body.telegramChatId   = iTg.value.trim();
+      if (iDc.value.trim()    !== pair.discordChannelId)       body.discordChannelId = iDc.value.trim();
+      if (iWh.value.trim()    !== pair.discordWebhookUrl)      body.discordWebhookUrl = iWh.value.trim();
+
+      if (!Object.keys(body).length) {
+        showToast('Keine Änderungen.', 'error');
+        return;
+      }
+      const updated = await api('PATCH', `/api/pairs/${pair.id}`, body);
+
+      // Update in-memory pair data and header badges
+      Object.assign(pair, updated);
+      tgBadge.textContent = `TG: ${updated.telegramChatId}`;
+      dcBadge.textContent = `DC: ${updated.discordChannelId}`;
+      if (labelBadge) {
+        labelBadge.textContent = updated.label || '';
+        labelBadge.style.display = updated.label ? '' : 'none';
+      }
+      flashSaved(`edit-save-status-${pair.id}`);
+      showToast('Verbindung gespeichert.', 'ok');
+    } catch (err) {
+      showToast(`Fehler: ${err.message}`, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  footer.append(status, saveBtn);
+  panel.appendChild(footer);
+  return panel;
+}
+
 // ── Roles panel ───────────────────────────────────────────────────────────────
 
 function buildRolesPanel(pair) {
@@ -1150,12 +1259,12 @@ function renderPair(pair) {
   const ids = document.createElement('div');
   ids.className = 'pair-ids';
 
-  if (pair.label) {
-    const lbl = document.createElement('span');
-    lbl.className = 'badge label';
-    lbl.textContent = pair.label;
-    ids.appendChild(lbl);
-  }
+  // Always create the label badge (hidden when empty) so Edit can update it
+  const labelBadge = document.createElement('span');
+  labelBadge.className = 'badge label';
+  labelBadge.textContent = pair.label || '';
+  labelBadge.style.display = pair.label ? '' : 'none';
+  ids.appendChild(labelBadge);
 
   const tgBadge = document.createElement('span');
   tgBadge.className = 'badge tg';
@@ -1186,7 +1295,7 @@ function renderPair(pair) {
   function panelToggle(btnEl, panelId, openLabel = 'Close', closedLabel) {
     const p = document.getElementById(panelId);
     // Close other open panels on this card first
-    card.querySelectorAll('.translation-panel.open, .media-panel.open, .roles-panel.open').forEach(el => {
+    card.querySelectorAll('.translation-panel.open, .media-panel.open, .roles-panel.open, .edit-panel.open').forEach(el => {
       if (el.id !== panelId) {
         el.classList.remove('open');
         // Reset sibling button text
@@ -1223,6 +1332,13 @@ function renderPair(pair) {
     if (!wasOpen) loadRoles(pair.id, pair.displayRoles ?? []);
   });
 
+  const editBtn = document.createElement('button');
+  editBtn.className = 'btn-ghost btn-sm';
+  editBtn.textContent = 'Edit';
+  editBtn.dataset.panel  = `edit-${pair.id}`;
+  editBtn.dataset.closed = 'Edit';
+  editBtn.addEventListener('click', () => panelToggle(editBtn, `edit-${pair.id}`, 'Close ×', 'Edit'));
+
   const delBtn = document.createElement('button');
   delBtn.className = 'btn-danger btn-sm';
   delBtn.textContent = 'Delete';
@@ -1239,12 +1355,13 @@ function renderPair(pair) {
     }
   });
 
-  actions.append(transBtn, mediaBtn, rolesBtn, delBtn);
+  actions.append(transBtn, mediaBtn, rolesBtn, editBtn, delBtn);
   header.append(ids, actions);
   card.appendChild(header);
   card.appendChild(buildTranslationPanel(pair));
   card.appendChild(buildMediaPanel(pair));
   card.appendChild(buildRolesPanel(pair));
+  card.appendChild(buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }));
   return card;
 }
 
