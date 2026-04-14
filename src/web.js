@@ -232,6 +232,31 @@ export function startWeb() {
     res.json(merged);
   });
 
+  // ── GET /api/deepl-usage ─────────────────────────────────────────────────
+  // Proxies the DeepL /v2/usage endpoint so the API key stays server-side.
+  app.get('/api/deepl-usage', async (req, res) => {
+    const key = process.env.DEEPL_API_KEY;
+    if (!key) return res.status(404).json({ error: 'DEEPL_API_KEY not configured.' });
+
+    // Free-tier keys end with ':fx' and use a different subdomain
+    const base = key.endsWith(':fx')
+      ? 'https://api-free.deepl.com'
+      : 'https://api.deepl.com';
+
+    try {
+      const r = await fetch(`${base}/v2/usage`, {
+        headers: { 'Authorization': `DeepL-Auth-Key ${key}` }
+      });
+      if (!r.ok) {
+        const msg = await r.text().catch(() => r.statusText);
+        return res.status(r.status).json({ error: `DeepL ${r.status}: ${msg}` });
+      }
+      res.json(await r.json());
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+
   // ── GET /api/pairs/:id/discord-roles ─────────────────────────────────────
   // Returns all selectable roles of the Discord guild linked to this pair.
   app.get('/api/pairs/:id/discord-roles', async (req, res) => {
