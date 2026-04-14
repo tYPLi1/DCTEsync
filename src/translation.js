@@ -284,6 +284,7 @@ export async function translate(text, targetLanguage, provider = 'anthropic') {
  * @returns {Promise<string>}
  */
 export async function maybeTranslate(text, translationConfig, direction) {
+  if (process.env.TRANSLATION_ENABLED === 'false') return text;
   if (!translationConfig?.enabled) return text;
 
   const dir = translationConfig[direction];
@@ -302,6 +303,7 @@ export async function maybeTranslate(text, translationConfig, direction) {
  */
 export function getProviderStatus() {
   return {
+    enabled:        process.env.TRANSLATION_ENABLED !== 'false',
     anthropic:      !!process.env.ANTHROPIC_API_KEY,
     openai:         !!process.env.OPENAI_API_KEY,
     ollama:         true, // always potentially available, no key needed
