@@ -671,6 +671,25 @@
                 <input type="password" id="s-ms-key" name="MICROSOFT_TRANSLATOR_KEY" autocomplete="off" disabled />
                 <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-ms-key',this)">🔒</button>
               </div>
+              <div id="ms-usage" class="usage-wrap" style="display:none">
+                <div class="usage-bar"><div class="usage-bar-fill" id="ms-usage-fill" style="width:0%"></div></div>
+                <span class="usage-text">
+                  <span id="ms-usage-text"></span>
+                  <span class="usage-note"> · Lokal gezählt · Reset am 1. des Monats</span>
+                </span>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                  <input type="number" id="ms-usage-input" min="0" max="2000000" placeholder="Zähler korrigieren…"
+                    style="width:170px;font-size:0.72rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);" />
+                  <button type="button" onclick="setMicrosoftUsage()"
+                    style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);cursor:pointer;">
+                    Setzen
+                  </button>
+                  <button type="button" onclick="setMicrosoftUsage(0)"
+                    style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--muted);cursor:pointer;">
+                    Zurücksetzen
+                  </button>
+                </div>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-ms-region">Microsoft Translator Region</label>
@@ -1532,6 +1551,44 @@ function unlockField(id, btn) {
   }
 }
 
+async function setMicrosoftUsage(forceValue) {
+  const input = document.getElementById('ms-usage-input');
+  const chars = forceValue !== undefined ? forceValue : parseInt(input?.value ?? '', 10);
+  if (!Number.isFinite(chars) || chars < 0) {
+    showToast('Bitte eine gültige Zahl eingeben.', 'error');
+    return;
+  }
+  try {
+    await api('POST', '/api/microsoft-usage', { chars });
+    if (input) input.value = '';
+    await loadMicrosoftUsage();
+    showToast('Zähler aktualisiert.', 'success');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+}
+
+async function loadMicrosoftUsage() {
+  const wrap = document.getElementById('ms-usage');
+  const fill = document.getElementById('ms-usage-fill');
+  const text = document.getElementById('ms-usage-text');
+  if (!wrap || !fill || !text) return;
+  try {
+    const d = await api('GET', '/api/microsoft-usage');
+    const pct = d.limit > 0
+      ? Math.min(100, (d.chars / d.limit) * 100)
+      : 0;
+    fill.style.width = pct.toFixed(1) + '%';
+    fill.className = 'usage-bar-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
+    const fmt = n => n.toLocaleString('de-DE');
+    text.textContent =
+      `${fmt(d.chars)} / ${fmt(d.limit)} Zeichen (${pct.toFixed(1)}%)`;
+    wrap.style.display = 'flex';
+  } catch {
+    wrap.style.display = 'none';
+  }
+}
+
 async function loadDeepLUsage() {
   const wrap = document.getElementById('deepl-usage');
   const fill = document.getElementById('deepl-usage-fill');
@@ -1587,6 +1644,10 @@ async function loadSettings() {
     // Load DeepL usage whenever a key is configured
     if (cfg['DEEPL_API_KEY']) loadDeepLUsage();
     else { const w = document.getElementById('deepl-usage'); if (w) w.style.display = 'none'; }
+
+    // Load Microsoft usage whenever a key is configured
+    if (cfg['MICROSOFT_TRANSLATOR_KEY']) loadMicrosoftUsage();
+    else { const w = document.getElementById('ms-usage'); if (w) w.style.display = 'none'; }
 
     // Load translation fallback chain
     loadTranslationChain();

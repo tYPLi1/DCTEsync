@@ -110,6 +110,44 @@ export function setTranslationChain(chain) {
   write(config);
 }
 
+// ── Microsoft Translator usage tracking ───────────────────────────────────────
+// Azure's free tier allows 2,000,000 characters per month and resets on the
+// 1st of each month (UTC). We track usage locally since Azure has no usage API.
+
+const MICROSOFT_CHAR_LIMIT = 2_000_000;
+
+function currentMonth() {
+  const d = new Date();
+  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+}
+
+export function getMicrosoftUsage() {
+  const config = read();
+  const stored = config.microsoftUsage ?? { chars: 0, month: currentMonth() };
+  // Auto-reset when the calendar month has rolled over
+  if (stored.month !== currentMonth()) {
+    return { chars: 0, limit: MICROSOFT_CHAR_LIMIT, month: currentMonth() };
+  }
+  return { chars: stored.chars, limit: MICROSOFT_CHAR_LIMIT, month: stored.month };
+}
+
+export function addMicrosoftChars(n) {
+  const config = read();
+  const now    = currentMonth();
+  const prev   = config.microsoftUsage ?? { chars: 0, month: now };
+  config.microsoftUsage = {
+    chars: (prev.month === now ? prev.chars : 0) + n,
+    month: now
+  };
+  write(config);
+}
+
+export function setMicrosoftChars(n) {
+  const config = read();
+  config.microsoftUsage = { chars: Math.max(0, n), month: currentMonth() };
+  write(config);
+}
+
 /**
  * Default extra fields applied to every new pair.
  * telegramTopicId: null = bridge the whole group/channel (no topic filtering).
