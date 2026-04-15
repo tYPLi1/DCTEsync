@@ -22,11 +22,11 @@
  */
 
 import 'dotenv/config';
-import { startTelegram, sendToTelegram, downloadTelegramFile, bot } from './telegram.js';
-import { startDiscord,  sendToDiscord, reactOnDiscord }             from './discord.js';
-import { getPairByTelegramId, getPairByDiscordId, getTranslationChain } from './store.js';
-import { maybeTranslate }                                            from './translation.js';
-import { store, tgToDc, dcToTg }                                    from './messageMap.js';
+import { startTelegram, sendToTelegram, downloadTelegramFile, bot, deleteFromTelegram } from './telegram.js';
+import { startDiscord,  sendToDiscord, reactOnDiscord }                                from './discord.js';
+import { getPairByTelegramId, getPairByDiscordId, getTranslationChain }                from './store.js';
+import { maybeTranslate }                                                              from './translation.js';
+import { store, tgToDc, dcToTg, removeByDc }                                          from './messageMap.js';
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
 import { startWeb }                                                  from './web.js';
 
@@ -75,7 +75,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
     const translated = await maybeTranslate(text, pair.translation, 'tgToDiscord', getTranslationChain());
     console.log(`[bridge] TG→DC | pair=${pair.id} | text | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, translated, null,
-      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+      dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
     return;
   }
@@ -89,7 +89,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
   // ── Non-file types (location, poll, animated sticker) ─────────────────────
   if (media.type === 'sticker_animated') {
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, `[Sticker ${media.emoji}]`, null,
-      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+      dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
     return;
   }
@@ -97,7 +97,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
   if (media.type === 'location') {
     const msg = `📍 Location: https://maps.google.com/?q=${media.latitude},${media.longitude}`;
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, msg, null,
-      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+      dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
     return;
   }
@@ -105,7 +105,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
   if (media.type === 'poll') {
     const lines = [`📊 **Poll:** ${media.question}`, ...media.options.map(o => `• ${o}`)];
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, lines.join('\n'), null,
-      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+      dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
     return;
   }
@@ -132,7 +132,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
     console.log(`[bridge] TG→DC | pair=${pair.id} | type=${media.type} | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, caption,
       { buffer, mimeType: media.mimeType, fileName: media.fileName },
-      dcReplyId ? { replyToMsgId: dcReplyId } : {});
+      dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
   }
 }
@@ -249,9 +249,25 @@ async function onDiscordReaction({ channelId, msgId, emoji, added }) {
   }
 }
 
+// ── Discord → Telegram deletion sync ─────────────────────────────────────────
+// Note: Telegram Bot API does NOT fire events when a message is deleted,
+// so TG→DC deletion sync is impossible. Only DC→TG is supported here.
+
+async function onDiscordDelete({ channelId, msgId }) {
+  const pair = getPairByDiscordId(channelId);
+  if (!pair) return;
+
+  const tgMsgId = dcToTg(pair.id, msgId);
+  if (!tgMsgId) return; // not a bridged message — ignore
+
+  console.log(`[bridge] DC delete | pair=${pair.id} | DC msgId=${msgId} → TG msgId=${tgMsgId}`);
+  await deleteFromTelegram(pair.telegramChatId, tgMsgId);
+  removeByDc(pair.id, msgId);
+}
+
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
 
 console.log('[bridge] Starting Telegram ↔ Discord bridge…');
 startTelegram(onTelegramMessage, onTelegramReaction);
-startDiscord(onDiscordMessage, onDiscordReaction);
+startDiscord(onDiscordMessage, onDiscordReaction, onDiscordDelete);
 startWeb();

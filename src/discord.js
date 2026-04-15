@@ -1,4 +1,4 @@
-import { Client, GatewayIntentBits, Events } from 'discord.js';
+import { Client, GatewayIntentBits, Events, AttachmentBuilder } from 'discord.js';
 import fetch from 'node-fetch';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
@@ -22,8 +22,10 @@ export const client = new Client({
  *   Called with { channelId, msgId, senderName, avatarUrl, text, attachments, roles, replyToMsgId }
  * @param {(reaction: object) => void} [onReaction]
  *   Called with { channelId, msgId, emoji, added: boolean }
+ * @param {(del: object) => void} [onDelete]
+ *   Called with { channelId, msgId }
  */
-export function startDiscord(onMessage, onReaction) {
+export function startDiscord(onMessage, onReaction, onDelete) {
   client.once(Events.ClientReady, c => {
     console.log(`[discord] Logged in as ${c.user.tag}`);
   });
@@ -104,6 +106,16 @@ export function startDiscord(onMessage, onReaction) {
     });
   }
 
+  // ── Delete events (DC → TG deletion sync) ─────────────────────────────────
+  if (onDelete) {
+    client.on(Events.MessageDelete, (message) => {
+      onDelete({
+        channelId: String(message.channelId),
+        msgId:     String(message.id)
+      });
+    });
+  }
+
   client.login(DISCORD_TOKEN).catch(err => {
     console.error('[discord] Login error:', err);
     process.exit(1);
@@ -117,15 +129,24 @@ export function startDiscord(onMessage, onReaction) {
  * Supports text-only and single file upload (with optional text).
  * Returns the Discord message ID (snowflake string) or null on error.
  *
+ * When options.replyToMsgId AND options.channelId are both provided, the
+ * message is sent via the bot client instead of the webhook so Discord's
+ * native reply threading ("Replying to X") is shown correctly.
+ * (Webhook executions do not support message_reference for reply threading.)
+ *
  * @param {string} webhookUrl
  * @param {string} username        Display name
  * @param {string|null} avatarUrl
  * @param {string|null} text
  * @param {{ buffer: Buffer, mimeType: string, fileName: string }|null} fileAttachment
- * @param {{ replyToMsgId?: string }} [options]
+ * @param {{ replyToMsgId?: string, channelId?: string }} [options]
  * @returns {Promise<string|null>}
  */
 export async function sendToDiscord(webhookUrl, username, avatarUrl, text, fileAttachment = null, options = {}) {
+  // Replies must go through the bot client — webhooks don't support threading
+  if (options.replyToMsgId && options.channelId) {
+    return await sendReply(options.channelId, username, text, options.replyToMsgId, fileAttachment);
+  }
   try {
     if (fileAttachment) {
       return await sendWithFile(webhookUrl, username, avatarUrl, text, fileAttachment, options);
@@ -134,6 +155,38 @@ export async function sendToDiscord(webhookUrl, username, avatarUrl, text, fileA
     }
   } catch (err) {
     console.error('[discord] Webhook error:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Send a threaded reply via the Discord bot client.
+ * Used when a TG→DC message is a reply — webhooks don't support reply threading.
+ * The sender name is shown in bold at the start of the message content.
+ *
+ * @param {string} channelId
+ * @param {string} username
+ * @param {string|null} text
+ * @param {string} replyToMsgId   Discord message snowflake to reply to
+ * @param {{ buffer: Buffer, mimeType: string, fileName: string }|null} fileAttachment
+ * @returns {Promise<string|null>}
+ */
+async function sendReply(channelId, username, text, replyToMsgId, fileAttachment = null) {
+  try {
+    const channel = await client.channels.fetch(channelId);
+    if (!channel) return null;
+    const content = `**${username.slice(0, 80)}**${text ? `: ${text}` : ''}`;
+    const opts    = { reply: { messageReference: replyToMsgId } };
+    let msg;
+    if (fileAttachment) {
+      const att = new AttachmentBuilder(fileAttachment.buffer, { name: fileAttachment.fileName });
+      msg = await channel.send({ ...opts, content, files: [att] });
+    } else {
+      msg = await channel.send({ ...opts, content });
+    }
+    return msg?.id ?? null;
+  } catch (err) {
+    console.error('[discord] sendReply error:', err.message);
     return null;
   }
 }

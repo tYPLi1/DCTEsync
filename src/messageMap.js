@@ -79,6 +79,26 @@ export function dcToTg(pairId, dcMsgId) {
 }
 
 /**
+ * Remove the mapping entry identified by its Discord message ID.
+ * Cleans up both directions (tgToDc and dcToTg) and the order array.
+ * Called when a Discord message is deleted so the mapping stays consistent.
+ *
+ * @param {string} pairId
+ * @param {string} dcMsgId
+ */
+export function removeByDc(pairId, dcMsgId) {
+  const m = maps.get(pairId);
+  if (!m) return;
+  const dc = String(dcMsgId);
+  const tg = m.dcToTg.get(dc);
+  if (tg) {
+    m.tgToDc.delete(tg);
+    m.order = m.order.filter(k => k !== tg);
+  }
+  m.dcToTg.delete(dc);
+}
+
+/**
  * Return the number of stored entries for a pair (for diagnostics).
  */
 export function size(pairId) {

@@ -229,3 +229,25 @@ export async function sendToTelegram(chatId, senderName, text, attachment = null
     return null;
   }
 }
+
+// ── Delete ────────────────────────────────────────────────────────────────────
+
+/**
+ * Delete a message from a Telegram chat.
+ * Used to mirror Discord message deletions onto the Telegram side.
+ * Returns true on success, false if the message couldn't be deleted
+ * (already deleted, bot lacks permission, etc.).
+ *
+ * @param {string|number} chatId
+ * @param {number|string} tgMsgId
+ * @returns {Promise<boolean>}
+ */
+export async function deleteFromTelegram(chatId, tgMsgId) {
+  try {
+    await bot.telegram.deleteMessage(chatId, Number(tgMsgId));
+    return true;
+  } catch (err) {
+    console.error(`[telegram] deleteMessage failed chatId=${chatId} msgId=${tgMsgId}:`, err.message);
+    return false;
+  }
+}
