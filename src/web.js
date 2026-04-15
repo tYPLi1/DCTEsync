@@ -422,6 +422,10 @@ export function startWeb() {
     }
     try {
       writeEnvVars(updates);
+      // Also update process.env so changes take effect without a restart
+      for (const [k, v] of Object.entries(updates)) {
+        process.env[k] = v;
+      }
       console.log(`[web] Config updated: ${Object.keys(updates).join(', ')}`);
       res.json({ ok: true, updated: Object.keys(updates) });
     } catch (err) {
