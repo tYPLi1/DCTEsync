@@ -326,9 +326,10 @@ export async function translate(text, targetLanguage, provider = 'anthropic') {
  * @param {object}   translationConfig  pair.translation
  * @param {'tgToDiscord'|'discordToTg'} direction
  * @param {string[]} fallbackChain  ordered list from store.getTranslationChain()
+ * @param {string|null} overrideProvider  when set, used instead of translationConfig.provider
  * @returns {Promise<string>}
  */
-export async function maybeTranslate(text, translationConfig, direction, fallbackChain = []) {
+export async function maybeTranslate(text, translationConfig, direction, fallbackChain = [], overrideProvider = null) {
   if (process.env.TRANSLATION_ENABLED === 'false') return text;
   if (!translationConfig?.enabled) return text;
 
@@ -336,7 +337,7 @@ export async function maybeTranslate(text, translationConfig, direction, fallbac
   if (!dir?.enabled) return text;
 
   const targetLanguage  = dir.targetLanguage || 'English';
-  const primaryProvider = translationConfig.provider || 'anthropic';
+  const primaryProvider = overrideProvider || translationConfig.provider || 'anthropic';
 
   // Build deduplicated chain: primary first, then fallbacks
   const seen  = new Set();

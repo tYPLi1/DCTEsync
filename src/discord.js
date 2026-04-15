@@ -62,6 +62,7 @@ export function startDiscord(onMessage, onReaction, onDelete) {
       msgId:       String(message.id),
       senderName:  message.member?.displayName || message.author.username,
       avatarUrl:   message.author.displayAvatarURL({ size: 128, extension: 'png' }),
+      authorId:    String(message.author.id),
       text,
       attachments,
       roles,

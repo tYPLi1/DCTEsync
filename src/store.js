@@ -148,6 +148,50 @@ export function setMicrosoftChars(n) {
   write(config);
 }
 
+// ── Translation tiers ─────────────────────────────────────────────────────────
+
+/**
+ * Default global translation tier config.
+ * premium.provider / standard.provider = null means "use pair.translation.provider".
+ * premium.chain / standard.chain = [] means "use the global translationChain as fallback".
+ */
+export const DEFAULT_TRANSLATION_TIERS = {
+  premium:  { provider: null, chain: [] },
+  standard: { provider: null, chain: [] }
+};
+
+/**
+ * Default global premium-access config.
+ * discordRoleIds: role IDs whose holders get the premium tier (Discord).
+ * telegramUserIds: user IDs that get the premium tier (Telegram).
+ */
+export const DEFAULT_PREMIUM_ACCESS = {
+  discordRoleIds:  [],
+  telegramUserIds: []
+};
+
+export function getTranslationTiers() {
+  return read().translationTiers ?? JSON.parse(JSON.stringify(DEFAULT_TRANSLATION_TIERS));
+}
+
+export function setTranslationTiers(tiers) {
+  const config = read();
+  config.translationTiers = tiers;
+  write(config);
+}
+
+export function getPremiumAccess() {
+  return read().premiumAccess ?? JSON.parse(JSON.stringify(DEFAULT_PREMIUM_ACCESS));
+}
+
+export function setPremiumAccess(access) {
+  const config = read();
+  config.premiumAccess = access;
+  write(config);
+}
+
+// ── Default extra fields applied to every new pair ────────────────────────────
+
 /**
  * Default extra fields applied to every new pair.
  * telegramTopicId: null = bridge the whole group/channel (no topic filtering).
