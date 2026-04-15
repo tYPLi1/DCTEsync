@@ -671,6 +671,13 @@
                 <input type="password" id="s-ms-key" name="MICROSOFT_TRANSLATOR_KEY" autocomplete="off" disabled />
                 <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-ms-key',this)">🔒</button>
               </div>
+              <div id="ms-usage" class="usage-wrap" style="display:none">
+                <div class="usage-bar"><div class="usage-bar-fill" id="ms-usage-fill" style="width:0%"></div></div>
+                <span class="usage-text">
+                  <span id="ms-usage-text"></span>
+                  <span class="usage-note"> · Lokal gezählt · Reset am 1. des Monats</span>
+                </span>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-ms-region">Microsoft Translator Region</label>
@@ -1511,6 +1518,27 @@ function unlockField(id, btn) {
   }
 }
 
+async function loadMicrosoftUsage() {
+  const wrap = document.getElementById('ms-usage');
+  const fill = document.getElementById('ms-usage-fill');
+  const text = document.getElementById('ms-usage-text');
+  if (!wrap || !fill || !text) return;
+  try {
+    const d = await api('GET', '/api/microsoft-usage');
+    const pct = d.limit > 0
+      ? Math.min(100, (d.chars / d.limit) * 100)
+      : 0;
+    fill.style.width = pct.toFixed(1) + '%';
+    fill.className = 'usage-bar-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
+    const fmt = n => n.toLocaleString('de-DE');
+    text.textContent =
+      `${fmt(d.chars)} / ${fmt(d.limit)} Zeichen (${pct.toFixed(1)}%)`;
+    wrap.style.display = 'flex';
+  } catch {
+    wrap.style.display = 'none';
+  }
+}
+
 async function loadDeepLUsage() {
   const wrap = document.getElementById('deepl-usage');
   const fill = document.getElementById('deepl-usage-fill');
@@ -1566,6 +1594,10 @@ async function loadSettings() {
     // Load DeepL usage whenever a key is configured
     if (cfg['DEEPL_API_KEY']) loadDeepLUsage();
     else { const w = document.getElementById('deepl-usage'); if (w) w.style.display = 'none'; }
+
+    // Load Microsoft usage whenever a key is configured
+    if (cfg['MICROSOFT_TRANSLATOR_KEY']) loadMicrosoftUsage();
+    else { const w = document.getElementById('ms-usage'); if (w) w.style.display = 'none'; }
 
     // Load translation fallback chain
     loadTranslationChain();

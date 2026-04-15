@@ -4,7 +4,7 @@ import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
 import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, getTranslationChain, setTranslationChain } from './store.js';
-import { getProviderStatus, getExhaustedProviders, resetExhausted } from './translation.js';
+import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
 
@@ -291,6 +291,13 @@ export function startWeb() {
 
     console.log(`[web] MediaSync updated: ${req.params.id}`);
     res.json(merged);
+  });
+
+  // ── GET /api/microsoft-usage ─────────────────────────────────────────────
+  // Returns the locally-tracked Microsoft Translator character count for the
+  // current calendar month. Azure has no usage API, so we count ourselves.
+  app.get('/api/microsoft-usage', (_req, res) => {
+    res.json(getMicrosoftUsage());
   });
 
   // ── GET /api/deepl-usage ─────────────────────────────────────────────────

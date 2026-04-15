@@ -17,6 +17,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import fetch from 'node-fetch';
+import { addMicrosoftChars, getMicrosoftUsage } from './store.js';
 
 // ── Language code map ─────────────────────────────────────────────────────────
 // Maps human-readable language names → ISO codes used by translation APIs.
@@ -218,6 +219,9 @@ async function translateMicrosoft(text, targetLanguage) {
   const region = process.env.MICROSOFT_TRANSLATOR_REGION || 'global';
   const target = getLangCode(targetLanguage, 'ms');
 
+  // Count characters before the call so the counter is accurate even on error
+  addMicrosoftChars(text.length);
+
   const res = await fetch(
     `https://api.cognitive.microsofttranslator.com/translate?api-version=3.0&to=${target}`,
     {
@@ -231,7 +235,10 @@ async function translateMicrosoft(text, targetLanguage) {
     }
   );
 
-  if (!res.ok) throw new Error(`Microsoft Translator ${res.status}: ${await res.text()}`);
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`Microsoft Translator ${res.status}: ${body}`);
+  }
   const data = await res.json();
   return data[0]?.translations?.[0]?.text ?? null;
 }
@@ -281,6 +288,8 @@ function isQuotaError(err) {
     msg.includes('character limit')   ||
     msg.includes('insufficient_quota')||
     msg.includes('insufficient quota')||
+    msg.includes('403001')            ||  // Azure Translator: free-tier limit reached
+    msg.includes('free tier limit')   ||  // Azure Translator: human-readable variant
     msg.match(/ 429:/) !== null           // rate-limit → treat as quota
   );
 }
@@ -377,4 +386,4 @@ export function getProviderStatus() {
   };
 }
 
-export { LANG_MAP };
+export { LANG_MAP, getMicrosoftUsage };
