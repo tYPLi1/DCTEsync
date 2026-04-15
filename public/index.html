@@ -707,7 +707,7 @@
               <div id="libre-usage" class="usage-wrap" style="display:none">
                 <span class="usage-text">
                   <span id="libre-usage-text"></span>
-                  <span class="usage-note"> · Lokal gezählt · Reset am 1. des Monats</span>
+                  <span class="usage-note"> · Lokal gezählt · Nur manuell zurücksetzbar</span>
                 </span>
                 <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
                   <input type="number" id="libre-usage-chars-input" min="0" placeholder="Zeichen…"
@@ -1740,7 +1740,7 @@ async function loadLibreUsage() {
   try {
     const d = await api('GET', '/api/libretranslate-usage');
     const fmt = n => n.toLocaleString('de-DE');
-    text.textContent = `${fmt(d.chars)} Zeichen · ${fmt(d.requests)} Übersetzungen (${d.month})`;
+    text.textContent = `${fmt(d.chars)} Zeichen · ${fmt(d.requests)} Übersetzungen (gesamt)`;
     wrap.style.display = 'flex';
   } catch {
     wrap.style.display = 'none';

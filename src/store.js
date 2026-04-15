@@ -150,37 +150,31 @@ export function setMicrosoftChars(n) {
 
 // ── LibreTranslate usage tracking ─────────────────────────────────────────────
 // LibreTranslate has no usage API (and usually no hard limit when self-hosted),
-// so we track it locally to surface "how much did my instance do this month?"
-// on the dashboard. Counters reset on the 1st of each month (UTC).
+// so we track it locally. Counters are lifetime totals — they do NOT reset
+// automatically and can only be cleared manually via the dashboard.
 
 export function getLibreUsage() {
   const config = read();
-  const stored = config.libreUsage ?? { chars: 0, requests: 0, month: currentMonth() };
-  if (stored.month !== currentMonth()) {
-    return { chars: 0, requests: 0, month: currentMonth() };
-  }
-  return { chars: stored.chars, requests: stored.requests, month: stored.month };
+  const stored = config.libreUsage ?? { chars: 0, requests: 0 };
+  return { chars: stored.chars ?? 0, requests: stored.requests ?? 0 };
 }
 
 export function addLibreUsage(chars) {
-  const config  = read();
-  const now     = currentMonth();
-  const prev    = config.libreUsage ?? { chars: 0, requests: 0, month: now };
-  const inMonth = prev.month === now;
+  const config = read();
+  const prev   = config.libreUsage ?? { chars: 0, requests: 0 };
   config.libreUsage = {
-    chars:    (inMonth ? prev.chars    : 0) + chars,
-    requests: (inMonth ? prev.requests : 0) + 1,
-    month:    now
+    chars:    (prev.chars    ?? 0) + chars,
+    requests: (prev.requests ?? 0) + 1
   };
   write(config);
 }
 
 export function setLibreUsage({ chars, requests }) {
   const config = read();
+  const prev   = config.libreUsage ?? { chars: 0, requests: 0 };
   config.libreUsage = {
-    chars:    Math.max(0, chars    ?? 0),
-    requests: Math.max(0, requests ?? 0),
-    month:    currentMonth()
+    chars:    Math.max(0, chars    ?? prev.chars    ?? 0),
+    requests: Math.max(0, requests ?? prev.requests ?? 0)
   };
   write(config);
 }
