@@ -704,6 +704,26 @@
             <div class="form-group">
               <label for="s-libre-url">LibreTranslate URL</label>
               <input type="text" id="s-libre-url" name="LIBRETRANSLATE_URL" placeholder="http://localhost:5000" />
+              <div id="libre-usage" class="usage-wrap" style="display:none">
+                <span class="usage-text">
+                  <span id="libre-usage-text"></span>
+                  <span class="usage-note"> · Lokal gezählt · Reset am 1. des Monats</span>
+                </span>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
+                  <input type="number" id="libre-usage-chars-input" min="0" placeholder="Zeichen…"
+                    style="width:110px;font-size:0.72rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);" />
+                  <input type="number" id="libre-usage-reqs-input" min="0" placeholder="Anfragen…"
+                    style="width:110px;font-size:0.72rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);" />
+                  <button type="button" onclick="setLibreUsage()"
+                    style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);cursor:pointer;">
+                    Setzen
+                  </button>
+                  <button type="button" onclick="setLibreUsage(0, 0)"
+                    style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--muted);cursor:pointer;">
+                    Zurücksetzen
+                  </button>
+                </div>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-libre-key">LibreTranslate API Key</label>
@@ -1679,6 +1699,54 @@ async function loadMicrosoftUsage() {
   }
 }
 
+async function setLibreUsage(forceChars, forceReqs) {
+  const charsInput = document.getElementById('libre-usage-chars-input');
+  const reqsInput  = document.getElementById('libre-usage-reqs-input');
+  const chars = forceChars !== undefined ? forceChars : (charsInput?.value === '' ? undefined : parseInt(charsInput?.value ?? '', 10));
+  const reqs  = forceReqs  !== undefined ? forceReqs  : (reqsInput?.value  === '' ? undefined : parseInt(reqsInput?.value  ?? '', 10));
+
+  if (chars === undefined && reqs === undefined) {
+    showToast('Bitte mindestens einen Wert eingeben.', 'error');
+    return;
+  }
+  if (chars !== undefined && (!Number.isFinite(chars) || chars < 0)) {
+    showToast('Zeichen: bitte eine gültige Zahl eingeben.', 'error');
+    return;
+  }
+  if (reqs !== undefined && (!Number.isFinite(reqs) || reqs < 0)) {
+    showToast('Anfragen: bitte eine gültige Zahl eingeben.', 'error');
+    return;
+  }
+
+  const body = {};
+  if (chars !== undefined) body.chars    = chars;
+  if (reqs  !== undefined) body.requests = reqs;
+
+  try {
+    await api('POST', '/api/libretranslate-usage', body);
+    if (charsInput) charsInput.value = '';
+    if (reqsInput)  reqsInput.value  = '';
+    await loadLibreUsage();
+    showToast('LibreTranslate-Zähler aktualisiert.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+}
+
+async function loadLibreUsage() {
+  const wrap = document.getElementById('libre-usage');
+  const text = document.getElementById('libre-usage-text');
+  if (!wrap || !text) return;
+  try {
+    const d = await api('GET', '/api/libretranslate-usage');
+    const fmt = n => n.toLocaleString('de-DE');
+    text.textContent = `${fmt(d.chars)} Zeichen · ${fmt(d.requests)} Übersetzungen (${d.month})`;
+    wrap.style.display = 'flex';
+  } catch {
+    wrap.style.display = 'none';
+  }
+}
+
 async function loadDeepLUsage() {
   const wrap = document.getElementById('deepl-usage');
   const fill = document.getElementById('deepl-usage-fill');
@@ -1738,6 +1806,10 @@ async function loadSettings() {
     // Load Microsoft usage whenever a key is configured
     if (cfg['MICROSOFT_TRANSLATOR_KEY']) loadMicrosoftUsage();
     else { const w = document.getElementById('ms-usage'); if (w) w.style.display = 'none'; }
+
+    // Load LibreTranslate usage whenever a URL is configured
+    if (cfg['LIBRETRANSLATE_URL']) loadLibreUsage();
+    else { const w = document.getElementById('libre-usage'); if (w) w.style.display = 'none'; }
 
     // Load translation fallback chain
     loadTranslationChain();

@@ -148,6 +148,43 @@ export function setMicrosoftChars(n) {
   write(config);
 }
 
+// ── LibreTranslate usage tracking ─────────────────────────────────────────────
+// LibreTranslate has no usage API (and usually no hard limit when self-hosted),
+// so we track it locally to surface "how much did my instance do this month?"
+// on the dashboard. Counters reset on the 1st of each month (UTC).
+
+export function getLibreUsage() {
+  const config = read();
+  const stored = config.libreUsage ?? { chars: 0, requests: 0, month: currentMonth() };
+  if (stored.month !== currentMonth()) {
+    return { chars: 0, requests: 0, month: currentMonth() };
+  }
+  return { chars: stored.chars, requests: stored.requests, month: stored.month };
+}
+
+export function addLibreUsage(chars) {
+  const config  = read();
+  const now     = currentMonth();
+  const prev    = config.libreUsage ?? { chars: 0, requests: 0, month: now };
+  const inMonth = prev.month === now;
+  config.libreUsage = {
+    chars:    (inMonth ? prev.chars    : 0) + chars,
+    requests: (inMonth ? prev.requests : 0) + 1,
+    month:    now
+  };
+  write(config);
+}
+
+export function setLibreUsage({ chars, requests }) {
+  const config = read();
+  config.libreUsage = {
+    chars:    Math.max(0, chars    ?? 0),
+    requests: Math.max(0, requests ?? 0),
+    month:    currentMonth()
+  };
+  write(config);
+}
+
 // ── Translation tiers ─────────────────────────────────────────────────────────
 
 /**

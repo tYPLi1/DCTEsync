@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess } from './store.js';
-import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage } from './translation.js';
+import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage } from './store.js';
+import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage, getLibreUsage } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
 
@@ -322,6 +322,28 @@ export function startWeb() {
     setMicrosoftChars(chars);
     console.log(`[web] Microsoft usage counter set to ${chars}`);
     res.json(getMicrosoftUsage());
+  });
+
+  // ── GET /api/libretranslate-usage ────────────────────────────────────────
+  // Returns the locally-tracked LibreTranslate counters for the current month.
+  app.get('/api/libretranslate-usage', (_req, res) => {
+    res.json(getLibreUsage());
+  });
+
+  // ── POST /api/libretranslate-usage ───────────────────────────────────────
+  // Manually override the counters. Body: { chars?: number, requests?: number }
+  app.post('/api/libretranslate-usage', (req, res) => {
+    const chars    = req.body?.chars    !== undefined ? Number(req.body.chars)    : undefined;
+    const requests = req.body?.requests !== undefined ? Number(req.body.requests) : undefined;
+    if (chars    !== undefined && (!Number.isFinite(chars)    || chars    < 0)) return res.status(400).json({ error: 'chars must be a non-negative number.' });
+    if (requests !== undefined && (!Number.isFinite(requests) || requests < 0)) return res.status(400).json({ error: 'requests must be a non-negative number.' });
+    const current = getLibreUsage();
+    setLibreUsage({
+      chars:    chars    ?? current.chars,
+      requests: requests ?? current.requests
+    });
+    console.log(`[web] LibreTranslate usage set to chars=${chars ?? current.chars}, requests=${requests ?? current.requests}`);
+    res.json(getLibreUsage());
   });
 
   // ── GET /api/deepl-usage ─────────────────────────────────────────────────

@@ -17,7 +17,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import fetch from 'node-fetch';
-import { addMicrosoftChars, getMicrosoftUsage } from './store.js';
+import { addMicrosoftChars, getMicrosoftUsage, addLibreUsage, getLibreUsage } from './store.js';
 
 // ── Language code map ─────────────────────────────────────────────────────────
 // Maps human-readable language names → ISO codes used by translation APIs.
@@ -197,6 +197,10 @@ async function translateLibre(text, targetLanguage) {
   if (process.env.LIBRETRANSLATE_API_KEY) {
     body.api_key = process.env.LIBRETRANSLATE_API_KEY;
   }
+
+  // Count characters + requests BEFORE the call so the counter remains
+  // accurate even when the request later fails (consistent with Microsoft).
+  addLibreUsage(text.length);
 
   const res = await fetch(`${baseUrl}/translate`, {
     method: 'POST',
@@ -387,4 +391,4 @@ export function getProviderStatus() {
   };
 }
 
-export { LANG_MAP, getMicrosoftUsage };
+export { LANG_MAP, getMicrosoftUsage, getLibreUsage };
