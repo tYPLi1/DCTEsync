@@ -30,6 +30,20 @@ import { store, tgToDc, dcToTg, removeByDc }                                    
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
 import { startWeb }                                                  from './web.js';
 
+// ── Safe translation wrapper ──────────────────────────────────────────────────
+// Guarantees a string is always returned even if maybeTranslate throws
+// unexpectedly (e.g. file-system errors in getTranslationChain).
+// This means a translator being down can never silently drop a message.
+
+async function safeTranslate(text, translationConfig, direction) {
+  try {
+    return await maybeTranslate(text, translationConfig, direction, getTranslationChain());
+  } catch (err) {
+    console.error(`[bridge] Translation threw unexpectedly, forwarding original text: ${err.message}`);
+    return text;
+  }
+}
+
 // ── mediaSync helpers ─────────────────────────────────────────────────────────
 
 const TG_TYPE_KEY = {
@@ -72,7 +86,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
   // ── Text-only ──────────────────────────────────────────────────────────────
   if (!media) {
     if (!text) return;
-    const translated = await maybeTranslate(text, pair.translation, 'tgToDiscord', getTranslationChain());
+    const translated = await safeTranslate(text, pair.translation, 'tgToDiscord');
     console.log(`[bridge] TG→DC | pair=${pair.id} | text | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, translated, null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
@@ -127,7 +141,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
     }
 
     const captionRaw = media.caption || text || null;
-    const caption    = captionRaw ? await maybeTranslate(captionRaw, pair.translation, 'tgToDiscord', getTranslationChain()) : null;
+    const caption    = captionRaw ? await safeTranslate(captionRaw, pair.translation, 'tgToDiscord') : null;
 
     console.log(`[bridge] TG→DC | pair=${pair.id} | type=${media.type} | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, caption,
@@ -159,7 +173,7 @@ async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, 
   if (pair.telegramTopicId) sendOpts.topicId    = pair.telegramTopicId;
 
   const translatedText = text
-    ? await maybeTranslate(text, pair.translation, 'discordToTg', getTranslationChain())
+    ? await safeTranslate(text, pair.translation, 'discordToTg')
     : null;
 
   // ── Text-only ──────────────────────────────────────────────────────────────

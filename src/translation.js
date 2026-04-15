@@ -296,11 +296,30 @@ function isQuotaError(err) {
 
 // ── Internal: single provider, throws on any error ───────────────────────────
 
+// Per-call timeout in ms. If the provider does not respond within this window
+// the call throws a timeout error, which maybeTranslate treats as a
+// non-quota error and falls through to the next provider (or returns original
+// text).  Configurable via TRANSLATION_TIMEOUT_MS env var.
+const TRANSLATION_TIMEOUT_MS = parseInt(process.env.TRANSLATION_TIMEOUT_MS || '15000', 10);
+
 async function translateProvider(text, targetLanguage, provider) {
   if (!text?.trim()) return text;
   const fn = PROVIDERS[provider];
   if (!fn) throw new Error(`Unknown provider: ${provider}`);
-  return (await fn(text, targetLanguage)) || text;
+
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(
+      () => reject(new Error(`${provider} timed out after ${TRANSLATION_TIMEOUT_MS}ms`)),
+      TRANSLATION_TIMEOUT_MS
+    );
+  });
+
+  try {
+    return (await Promise.race([fn(text, targetLanguage), timeoutPromise])) || text;
+  } finally {
+    clearTimeout(timeoutId);
+  }
 }
 
 // ── Public: single provider with catch (backward compat) ─────────────────────
