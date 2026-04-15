@@ -3,10 +3,11 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, getTranslationChain, setTranslationChain, setMicrosoftChars } from './store.js';
-import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage } from './translation.js';
+import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage } from './store.js';
+import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage, getLibreUsage } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
+import { getRecentTelegramChats } from './bridge.js';
 
 const ENV_PATH = resolve(process.cwd(), '.env');
 
@@ -324,6 +325,28 @@ export function startWeb() {
     res.json(getMicrosoftUsage());
   });
 
+  // ── GET /api/libretranslate-usage ────────────────────────────────────────
+  // Returns the locally-tracked LibreTranslate counters for the current month.
+  app.get('/api/libretranslate-usage', (_req, res) => {
+    res.json(getLibreUsage());
+  });
+
+  // ── POST /api/libretranslate-usage ───────────────────────────────────────
+  // Manually override the counters. Body: { chars?: number, requests?: number }
+  app.post('/api/libretranslate-usage', (req, res) => {
+    const chars    = req.body?.chars    !== undefined ? Number(req.body.chars)    : undefined;
+    const requests = req.body?.requests !== undefined ? Number(req.body.requests) : undefined;
+    if (chars    !== undefined && (!Number.isFinite(chars)    || chars    < 0)) return res.status(400).json({ error: 'chars must be a non-negative number.' });
+    if (requests !== undefined && (!Number.isFinite(requests) || requests < 0)) return res.status(400).json({ error: 'requests must be a non-negative number.' });
+    const current = getLibreUsage();
+    setLibreUsage({
+      chars:    chars    ?? current.chars,
+      requests: requests ?? current.requests
+    });
+    console.log(`[web] LibreTranslate usage set to chars=${chars ?? current.chars}, requests=${requests ?? current.requests}`);
+    res.json(getLibreUsage());
+  });
+
   // ── GET /api/deepl-usage ─────────────────────────────────────────────────
   // Proxies the DeepL /v2/usage endpoint so the API key stays server-side.
   app.get('/api/deepl-usage', async (req, res) => {
@@ -463,6 +486,160 @@ export function startWeb() {
       console.error('[web] Failed to write .env:', err.message);
       res.status(500).json({ error: 'Failed to write .env: ' + err.message });
     }
+  });
+
+  // ── GET /api/translation-tiers ───────────────────────────────────────────
+  // Returns the global tier config (provider + chain per tier) and premium access lists.
+  app.get('/api/translation-tiers', (_req, res) => {
+    res.json({
+      translationTiers: getTranslationTiers(),
+      premiumAccess:    getPremiumAccess()
+    });
+  });
+
+  // ── PATCH /api/translation-tiers ─────────────────────────────────────────
+  // Update global tier providers + chains.
+  // Body: { premium?: { provider?, chain? }, standard?: { provider?, chain? } }
+  app.patch('/api/translation-tiers', (req, res) => {
+    const VALID = new Set(['anthropic','openai','ollama','google','deepl','libretranslate','microsoft','none',null]);
+    const current = getTranslationTiers();
+    const incoming = req.body;
+
+    for (const tier of ['premium', 'standard']) {
+      if (incoming[tier] === undefined) continue;
+      if (incoming[tier].provider !== undefined && !VALID.has(incoming[tier].provider)) {
+        return res.status(400).json({ error: `Unknown provider for ${tier}: ${incoming[tier].provider}` });
+      }
+      if (incoming[tier].chain !== undefined) {
+        if (!Array.isArray(incoming[tier].chain)) {
+          return res.status(400).json({ error: `${tier}.chain must be an array.` });
+        }
+        const invalid = incoming[tier].chain.filter(p => !VALID.has(p));
+        if (invalid.length) {
+          return res.status(400).json({ error: `Unknown providers in ${tier}.chain: ${invalid.join(', ')}` });
+        }
+      }
+    }
+
+    const merged = {
+      premium: {
+        provider: incoming.premium?.provider  !== undefined ? incoming.premium.provider  : current.premium.provider,
+        chain:    incoming.premium?.chain     !== undefined ? incoming.premium.chain     : current.premium.chain
+      },
+      standard: {
+        provider: incoming.standard?.provider !== undefined ? incoming.standard.provider : current.standard.provider,
+        chain:    incoming.standard?.chain    !== undefined ? incoming.standard.chain    : current.standard.chain
+      }
+    };
+    setTranslationTiers(merged);
+    console.log('[web] Translation tiers updated');
+    res.json({ ok: true, translationTiers: merged });
+  });
+
+  // ── PATCH /api/premium-access ─────────────────────────────────────────────
+  // Update global premium access lists (Discord role IDs + Telegram user IDs).
+  // Body: { discordRoleIds?: string[], telegramUserIds?: string[] }
+  app.patch('/api/premium-access', (req, res) => {
+    const { discordRoleIds, telegramUserIds } = req.body;
+    if (discordRoleIds !== undefined && !Array.isArray(discordRoleIds)) {
+      return res.status(400).json({ error: 'discordRoleIds must be an array of strings.' });
+    }
+    if (telegramUserIds !== undefined && !Array.isArray(telegramUserIds)) {
+      return res.status(400).json({ error: 'telegramUserIds must be an array of strings.' });
+    }
+    const current = getPremiumAccess();
+    const merged = {
+      discordRoleIds:  discordRoleIds  !== undefined ? discordRoleIds.map(String)  : current.discordRoleIds,
+      telegramUserIds: telegramUserIds !== undefined ? telegramUserIds.map(String) : current.telegramUserIds
+    };
+    setPremiumAccess(merged);
+    console.log(`[web] Premium access updated`);
+    res.json({ ok: true, premiumAccess: merged });
+  });
+
+  // ── PATCH /api/pairs/:id/translation-tiers-override ──────────────────────
+  // Set or clear a per-pair tier override. Send null to remove the override.
+  // Body: { premium?: { provider?, chain? }, standard?: { provider?, chain? } } | null
+  app.patch('/api/pairs/:id/translation-tiers-override', (req, res) => {
+    const pair = getPairs().find(p => p.id === req.params.id);
+    if (!pair) return res.status(404).json({ error: 'Pair not found.' });
+
+    const body = req.body;
+    if (body === null || body.remove === true) {
+      updatePair(req.params.id, { translationTiersOverride: null });
+      return res.json({ ok: true, translationTiersOverride: null });
+    }
+
+    const VALID = new Set(['anthropic','openai','ollama','google','deepl','libretranslate','microsoft','none',null]);
+    for (const tier of ['premium', 'standard']) {
+      if (body[tier] === undefined) continue;
+      if (body[tier].provider !== undefined && !VALID.has(body[tier].provider)) {
+        return res.status(400).json({ error: `Unknown provider for ${tier}: ${body[tier].provider}` });
+      }
+      if (body[tier].chain !== undefined) {
+        if (!Array.isArray(body[tier].chain)) {
+          return res.status(400).json({ error: `${tier}.chain must be an array.` });
+        }
+        const invalid = body[tier].chain.filter(p => !VALID.has(p));
+        if (invalid.length) {
+          return res.status(400).json({ error: `Unknown providers in ${tier}.chain: ${invalid.join(', ')}` });
+        }
+      }
+    }
+
+    const current = pair.translationTiersOverride ?? { premium: { provider: null, chain: [] }, standard: { provider: null, chain: [] } };
+    const merged = {
+      premium: {
+        provider: body.premium?.provider  !== undefined ? body.premium.provider  : current.premium?.provider  ?? null,
+        chain:    body.premium?.chain     !== undefined ? body.premium.chain     : current.premium?.chain     ?? []
+      },
+      standard: {
+        provider: body.standard?.provider !== undefined ? body.standard.provider : current.standard?.provider ?? null,
+        chain:    body.standard?.chain    !== undefined ? body.standard.chain    : current.standard?.chain    ?? []
+      }
+    };
+    updatePair(req.params.id, { translationTiersOverride: merged });
+    console.log(`[web] Translation tiers override updated for pair ${req.params.id}`);
+    res.json({ ok: true, translationTiersOverride: merged });
+  });
+
+  // ── PATCH /api/pairs/:id/premium-access-override ─────────────────────────
+  // Set or clear a per-pair premium access override. Send null to remove.
+  // Body: { discordRoleIds?: string[], telegramUserIds?: string[] } | null
+  app.patch('/api/pairs/:id/premium-access-override', (req, res) => {
+    const pair = getPairs().find(p => p.id === req.params.id);
+    if (!pair) return res.status(404).json({ error: 'Pair not found.' });
+
+    const body = req.body;
+    if (body === null || body.remove === true) {
+      updatePair(req.params.id, { premiumAccessOverride: null });
+      return res.json({ ok: true, premiumAccessOverride: null });
+    }
+
+    const { discordRoleIds, telegramUserIds } = body;
+    if (discordRoleIds !== undefined && !Array.isArray(discordRoleIds)) {
+      return res.status(400).json({ error: 'discordRoleIds must be an array of strings.' });
+    }
+    if (telegramUserIds !== undefined && !Array.isArray(telegramUserIds)) {
+      return res.status(400).json({ error: 'telegramUserIds must be an array of strings.' });
+    }
+    const current = pair.premiumAccessOverride ?? { discordRoleIds: [], telegramUserIds: [] };
+    const merged = {
+      discordRoleIds:  discordRoleIds  !== undefined ? discordRoleIds.map(String)  : current.discordRoleIds,
+      telegramUserIds: telegramUserIds !== undefined ? telegramUserIds.map(String) : current.telegramUserIds
+    };
+    updatePair(req.params.id, { premiumAccessOverride: merged });
+    console.log(`[web] Premium access override updated for pair ${req.params.id}`);
+    res.json({ ok: true, premiumAccessOverride: merged });
+  });
+
+  // ── GET /api/telegram-chats ──────────────────────────────────────────────
+  // Returns recent Telegram chat IDs (for auto-detect UI).
+  // Sorted by most recent first.
+  app.get('/api/telegram-chats', (_req, res) => {
+    res.json({
+      chats: getRecentTelegramChats()
+    });
   });
 
   app.listen(PORT, () => {

@@ -17,7 +17,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import fetch from 'node-fetch';
-import { addMicrosoftChars, getMicrosoftUsage } from './store.js';
+import { addMicrosoftChars, getMicrosoftUsage, addLibreUsage, getLibreUsage } from './store.js';
 
 // ── Language code map ─────────────────────────────────────────────────────────
 // Maps human-readable language names → ISO codes used by translation APIs.
@@ -198,6 +198,10 @@ async function translateLibre(text, targetLanguage) {
     body.api_key = process.env.LIBRETRANSLATE_API_KEY;
   }
 
+  // Count characters + requests BEFORE the call so the counter remains
+  // accurate even when the request later fails (consistent with Microsoft).
+  addLibreUsage(text.length);
+
   const res = await fetch(`${baseUrl}/translate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -345,9 +349,10 @@ export async function translate(text, targetLanguage, provider = 'anthropic') {
  * @param {object}   translationConfig  pair.translation
  * @param {'tgToDiscord'|'discordToTg'} direction
  * @param {string[]} fallbackChain  ordered list from store.getTranslationChain()
+ * @param {string|null} overrideProvider  when set, used instead of translationConfig.provider
  * @returns {Promise<string>}
  */
-export async function maybeTranslate(text, translationConfig, direction, fallbackChain = []) {
+export async function maybeTranslate(text, translationConfig, direction, fallbackChain = [], overrideProvider = null) {
   if (process.env.TRANSLATION_ENABLED === 'false') return text;
   if (!translationConfig?.enabled) return text;
 
@@ -355,7 +360,7 @@ export async function maybeTranslate(text, translationConfig, direction, fallbac
   if (!dir?.enabled) return text;
 
   const targetLanguage  = dir.targetLanguage || 'English';
-  const primaryProvider = translationConfig.provider || 'anthropic';
+  const primaryProvider = overrideProvider || translationConfig.provider || 'anthropic';
 
   // Build deduplicated chain: primary first, then fallbacks
   const seen  = new Set();
@@ -405,4 +410,4 @@ export function getProviderStatus() {
   };
 }
 
-export { LANG_MAP, getMicrosoftUsage };
+export { LANG_MAP, getMicrosoftUsage, getLibreUsage };

@@ -530,6 +530,53 @@
     .btn-chain:hover { color: var(--text); border-color: var(--accent); opacity: 1; }
     .btn-chain.danger:hover { color: var(--danger); border-color: var(--danger); }
     .btn-chain:disabled { opacity: 0.3; cursor: not-allowed; }
+
+    /* ── PREMIUM PANEL (per pair) ───────────────────────────────────────── */
+    .premium-panel {
+      border-top: 1px solid var(--border);
+      background: var(--surface2);
+      padding: 16px 20px;
+      display: none;
+    }
+    .premium-panel.open { display: block; }
+    .premium-panel h3 {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--muted);
+      margin-bottom: 6px;
+      text-transform: uppercase;
+      letter-spacing: .06em;
+    }
+    .premium-hint { font-size: 0.75rem; color: var(--muted); margin-bottom: 14px; }
+
+    /* ── TIER CARDS ─────────────────────────────────────────────────────── */
+    .tier-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+      margin-bottom: 14px;
+    }
+    @media (max-width: 560px) { .tier-grid { grid-template-columns: 1fr; } }
+    .tier-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .tier-card h4 { font-size: 0.82rem; font-weight: 600; color: var(--text); }
+    .tier-chain-list {
+      display: flex; flex-direction: column; gap: 4px; min-height: 20px;
+    }
+    .tier-chain-item {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 5px; padding: 4px 8px; font-size: 0.78rem;
+    }
+    .tier-chain-label { flex: 1; }
+    .tier-chain-controls { display: flex; gap: 6px; align-items: center; margin-top: 2px; }
   </style>
 </head>
 <body>
@@ -657,6 +704,26 @@
             <div class="form-group">
               <label for="s-libre-url">LibreTranslate URL</label>
               <input type="text" id="s-libre-url" name="LIBRETRANSLATE_URL" placeholder="http://localhost:5000" />
+              <div id="libre-usage" class="usage-wrap" style="display:none">
+                <span class="usage-text">
+                  <span id="libre-usage-text"></span>
+                  <span class="usage-note"> · Lokal gezählt · Nur manuell zurücksetzbar</span>
+                </span>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:4px;flex-wrap:wrap;">
+                  <input type="number" id="libre-usage-chars-input" min="0" placeholder="Zeichen…"
+                    style="width:110px;font-size:0.72rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);" />
+                  <input type="number" id="libre-usage-reqs-input" min="0" placeholder="Anfragen…"
+                    style="width:110px;font-size:0.72rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);" />
+                  <button type="button" onclick="setLibreUsage()"
+                    style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);cursor:pointer;">
+                    Setzen
+                  </button>
+                  <button type="button" onclick="setLibreUsage(0, 0)"
+                    style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--muted);cursor:pointer;">
+                    Zurücksetzen
+                  </button>
+                </div>
+              </div>
             </div>
             <div class="form-group">
               <label for="s-libre-key">LibreTranslate API Key</label>
@@ -718,6 +785,31 @@
           <button type="button" class="btn-chain danger" id="chain-reset-btn" style="margin-left:auto;display:none" onclick="resetAllExhausted()">Reset alle Erschöpften</button>
         </div>
       </div>
+      <!-- Translation tiers — uses /api/translation-tiers -->
+      <hr style="border:none;border-top:1px solid var(--border);margin:24px 0 18px">
+      <div class="settings-section" id="tiers-section">
+        <h3>Übersetzungs-Tiers (Premium / Standard)</h3>
+        <p class="settings-hint">Zwei Qualitätsstufen für die Übersetzung. Premium-Nutzer bekommen den Premium-Tier — alle anderen den Standard-Tier. Kein Provider gewählt = Provider der jeweiligen Verbindung wird verwendet. Keine Chain gewählt = globale Fallback-Kette wird verwendet.</p>
+        <div class="tier-grid" id="global-tiers-grid">
+          <span style="color:var(--muted);font-size:0.8rem">Lädt…</span>
+        </div>
+        <h4 style="font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:8px">Premium-Zugang (Global)</h4>
+        <p class="settings-hint">Discord: Rollen-IDs kommagetrennt. Telegram: User-IDs kommagetrennt. Nutzer ohne Eintrag → Standard-Tier.</p>
+        <div class="form-grid" style="margin-bottom:10px">
+          <div class="form-group">
+            <label for="global-premium-dc-roles">Discord Rollen-IDs (Premium)</label>
+            <input type="text" id="global-premium-dc-roles" placeholder="roleId1, roleId2, …" />
+          </div>
+          <div class="form-group">
+            <label for="global-premium-tg-users">Telegram User-IDs (Premium)</label>
+            <input type="text" id="global-premium-tg-users" placeholder="123456789, 987654321, …" />
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px">
+          <span id="tiers-save-status" class="save-status">✓ Gespeichert</span>
+          <button type="button" class="btn-ghost btn-sm" onclick="saveGlobalTiers()">Speichern</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -732,7 +824,10 @@
         </div>
         <div class="form-group">
           <label for="f-tg">Telegram Chat ID</label>
-          <input type="text" id="f-tg" placeholder="-1001234567890" required />
+          <div style="display:flex;gap:8px;align-items:flex-end">
+            <input type="text" id="f-tg" placeholder="-1001234567890" required style="flex:1" />
+            <button type="button" class="btn-ghost btn-sm" onclick="showAutoDetect('f-tg')" title="Auto-Detect">🔍</button>
+          </div>
         </div>
         <div class="form-group">
           <label for="f-topic" title="For Telegram forum groups only. Leave blank to bridge the whole chat.">Telegram Topic ID <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
@@ -1189,11 +1284,29 @@ function buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }) {
 
   const { group: gLabel,  input: iLabel  } = field(`e-label-${pair.id}`,  'Label (optional)',                    pair.label,             'z.B. General');
   const { group: gTg,    input: iTg     } = field(`e-tg-${pair.id}`,     'Telegram Chat ID',                    pair.telegramChatId,    '-1001234567890');
+  // Add auto-detect button to gTg
+  const autoDetectBtn = document.createElement('button');
+  autoDetectBtn.type = 'button';
+  autoDetectBtn.className = 'btn-ghost btn-sm';
+  autoDetectBtn.textContent = '🔍';
+  autoDetectBtn.title = 'Auto-Detect';
+  autoDetectBtn.addEventListener('click', (e) => { e.preventDefault(); showAutoDetect(`e-tg-${pair.id}`); });
+  const gTgWrapper = document.createElement('div');
+  gTgWrapper.style.cssText = 'display:flex;gap:8px;align-items:flex-end';
+  iTg.style.flex = '1';
+  gTgWrapper.appendChild(iTg);
+  gTgWrapper.appendChild(autoDetectBtn);
+  const gTgNew = document.createElement('div');
+  gTgNew.className = gTg.className;
+  const gTgLabel = gTg.querySelector('label');
+  gTgNew.appendChild(gTgLabel);
+  gTgNew.appendChild(gTgWrapper);
+
   const { group: gTopic, input: iTopic  } = field(`e-topic-${pair.id}`,  'Telegram Topic ID (optional)',         pair.telegramTopicId ?? '', 'Forum topic ID');
   const { group: gDc,    input: iDc     } = field(`e-dc-${pair.id}`,     'Discord Channel ID',                  pair.discordChannelId,  '123456789012345678');
   const { group: gWh,    input: iWh     } = field(`e-wh-${pair.id}`,     'Discord Webhook URL',                 pair.discordWebhookUrl, 'https://discord.com/api/webhooks/…', true);
 
-  grid.append(gLabel, gTg, gTopic, gDc, gWh);
+  grid.append(gLabel, gTgNew, gTopic, gDc, gWh);
   panel.appendChild(grid);
 
   const footer = document.createElement('div');
@@ -1388,7 +1501,7 @@ function renderPair(pair) {
   function panelToggle(btnEl, panelId, openLabel = 'Close', closedLabel) {
     const p = document.getElementById(panelId);
     // Close other open panels on this card first
-    card.querySelectorAll('.translation-panel.open, .media-panel.open, .roles-panel.open, .edit-panel.open').forEach(el => {
+    card.querySelectorAll('.translation-panel.open, .media-panel.open, .roles-panel.open, .edit-panel.open, .premium-panel.open').forEach(el => {
       if (el.id !== panelId) {
         el.classList.remove('open');
         // Reset sibling button text
@@ -1448,12 +1561,30 @@ function renderPair(pair) {
     }
   });
 
-  actions.append(transBtn, mediaBtn, rolesBtn, editBtn, delBtn);
+  const premiumBtn = document.createElement('button');
+  premiumBtn.className = 'btn-ghost btn-sm';
+  premiumBtn.textContent = 'Premium';
+  premiumBtn.dataset.panel  = `premium-${pair.id}`;
+  premiumBtn.dataset.closed = 'Premium';
+  premiumBtn.addEventListener('click', () => {
+    const wasOpen = document.getElementById(`premium-${pair.id}`).classList.contains('open');
+    panelToggle(premiumBtn, `premium-${pair.id}`, 'Close ×', 'Premium');
+    // Load DC roles when opening for the first time
+    if (!wasOpen) {
+      const listEl = document.getElementById(`premium-dc-roles-${pair.id}`);
+      if (listEl && listEl.querySelector('span')) {
+        loadPremiumRoles(pair.id, pair.premiumAccessOverride?.discordRoleIds ?? []);
+      }
+    }
+  });
+
+  actions.append(transBtn, mediaBtn, rolesBtn, premiumBtn, editBtn, delBtn);
   header.append(ids, actions);
   card.appendChild(header);
   card.appendChild(buildTranslationPanel(pair));
   card.appendChild(buildMediaPanel(pair));
   card.appendChild(buildRolesPanel(pair));
+  card.appendChild(buildPremiumPanel(pair));
   card.appendChild(buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }));
   return card;
 }
@@ -1589,6 +1720,54 @@ async function loadMicrosoftUsage() {
   }
 }
 
+async function setLibreUsage(forceChars, forceReqs) {
+  const charsInput = document.getElementById('libre-usage-chars-input');
+  const reqsInput  = document.getElementById('libre-usage-reqs-input');
+  const chars = forceChars !== undefined ? forceChars : (charsInput?.value === '' ? undefined : parseInt(charsInput?.value ?? '', 10));
+  const reqs  = forceReqs  !== undefined ? forceReqs  : (reqsInput?.value  === '' ? undefined : parseInt(reqsInput?.value  ?? '', 10));
+
+  if (chars === undefined && reqs === undefined) {
+    showToast('Bitte mindestens einen Wert eingeben.', 'error');
+    return;
+  }
+  if (chars !== undefined && (!Number.isFinite(chars) || chars < 0)) {
+    showToast('Zeichen: bitte eine gültige Zahl eingeben.', 'error');
+    return;
+  }
+  if (reqs !== undefined && (!Number.isFinite(reqs) || reqs < 0)) {
+    showToast('Anfragen: bitte eine gültige Zahl eingeben.', 'error');
+    return;
+  }
+
+  const body = {};
+  if (chars !== undefined) body.chars    = chars;
+  if (reqs  !== undefined) body.requests = reqs;
+
+  try {
+    await api('POST', '/api/libretranslate-usage', body);
+    if (charsInput) charsInput.value = '';
+    if (reqsInput)  reqsInput.value  = '';
+    await loadLibreUsage();
+    showToast('LibreTranslate-Zähler aktualisiert.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+}
+
+async function loadLibreUsage() {
+  const wrap = document.getElementById('libre-usage');
+  const text = document.getElementById('libre-usage-text');
+  if (!wrap || !text) return;
+  try {
+    const d = await api('GET', '/api/libretranslate-usage');
+    const fmt = n => n.toLocaleString('de-DE');
+    text.textContent = `${fmt(d.chars)} Zeichen · ${fmt(d.requests)} Übersetzungen (gesamt)`;
+    wrap.style.display = 'flex';
+  } catch {
+    wrap.style.display = 'none';
+  }
+}
+
 async function loadDeepLUsage() {
   const wrap = document.getElementById('deepl-usage');
   const fill = document.getElementById('deepl-usage-fill');
@@ -1649,8 +1828,15 @@ async function loadSettings() {
     if (cfg['MICROSOFT_TRANSLATOR_KEY']) loadMicrosoftUsage();
     else { const w = document.getElementById('ms-usage'); if (w) w.style.display = 'none'; }
 
+    // Load LibreTranslate usage whenever a URL is configured
+    if (cfg['LIBRETRANSLATE_URL']) loadLibreUsage();
+    else { const w = document.getElementById('libre-usage'); if (w) w.style.display = 'none'; }
+
     // Load translation fallback chain
     loadTranslationChain();
+
+    // Load translation tiers
+    loadTranslationTiers();
 
   } catch (err) {
     showToast('Could not load settings: ' + err.message, 'error');
@@ -1858,11 +2044,487 @@ async function resetExhaustedProvider(provider) {
   }
 }
 
+// ── Translation Tiers ─────────────────────────────────────────────────────────
+
+let _tiersData = { translationTiers: { premium: { provider: null, chain: [] }, standard: { provider: null, chain: [] } }, premiumAccess: { discordRoleIds: [], telegramUserIds: [] } };
+
+const TIER_PROVIDERS = [
+  { id: null,           label: '— Pair-Provider verwenden (Standard)' },
+  ...PROVIDERS.map(p => ({ id: p.id, label: p.label }))
+];
+
+const CHAIN_PROVIDERS_WITH_NONE = [
+  ...PROVIDERS.map(p => ({ id: p.id, label: p.label })),
+  { id: 'none', label: '— Keine Übersetzung (Stopp)' }
+];
+
+/** Build a self-contained chain editor. Returns { el, getChain } */
+function buildMiniChainEditor(initialChain, idPrefix) {
+  const state = { chain: [...(initialChain ?? [])] };
+  const wrap = document.createElement('div');
+
+  const list = document.createElement('div');
+  list.className = 'tier-chain-list';
+  list.id = `${idPrefix}-list`;
+
+  function renderList() {
+    list.innerHTML = '';
+    if (!state.chain.length) {
+      const empty = document.createElement('span');
+      empty.style.cssText = 'font-size:0.75rem;color:var(--muted)';
+      empty.textContent = 'Leer = globale Chain nutzen';
+      list.appendChild(empty);
+      return;
+    }
+    state.chain.forEach((p, idx) => {
+      const item = document.createElement('div');
+      item.className = 'tier-chain-item';
+      const lbl = document.createElement('span');
+      lbl.className = 'tier-chain-label';
+      const info = CHAIN_PROVIDERS_WITH_NONE.find(x => x.id === p);
+      lbl.textContent = info ? info.label.split(' (')[0] : p;
+      item.appendChild(lbl);
+
+      const upBtn = document.createElement('button');
+      upBtn.type = 'button'; upBtn.className = 'btn-chain'; upBtn.textContent = '▲'; upBtn.title = 'Hoch';
+      upBtn.disabled = idx === 0;
+      upBtn.addEventListener('click', () => { [state.chain[idx-1], state.chain[idx]] = [state.chain[idx], state.chain[idx-1]]; renderList(); });
+
+      const downBtn = document.createElement('button');
+      downBtn.type = 'button'; downBtn.className = 'btn-chain'; downBtn.textContent = '▼'; downBtn.title = 'Runter';
+      downBtn.disabled = idx === state.chain.length - 1;
+      downBtn.addEventListener('click', () => { [state.chain[idx], state.chain[idx+1]] = [state.chain[idx+1], state.chain[idx]]; renderList(); });
+
+      const rmBtn = document.createElement('button');
+      rmBtn.type = 'button'; rmBtn.className = 'btn-chain danger'; rmBtn.textContent = '✕'; rmBtn.title = 'Entfernen';
+      rmBtn.addEventListener('click', () => { state.chain.splice(idx, 1); renderList(); });
+
+      item.append(upBtn, downBtn, rmBtn);
+      list.appendChild(item);
+    });
+  }
+
+  renderList();
+  wrap.appendChild(list);
+
+  const controls = document.createElement('div');
+  controls.className = 'tier-chain-controls';
+
+  const sel = document.createElement('select');
+  sel.style.cssText = 'font-size:0.75rem;padding:3px 6px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);outline:none;';
+  for (const p of CHAIN_PROVIDERS_WITH_NONE) {
+    const opt = document.createElement('option');
+    opt.value = p.id;
+    opt.textContent = p.label;
+    sel.appendChild(opt);
+  }
+  controls.appendChild(sel);
+
+  const addBtn = document.createElement('button');
+  addBtn.type = 'button'; addBtn.className = 'btn-chain'; addBtn.textContent = '+ Hinzufügen';
+  addBtn.addEventListener('click', () => { state.chain.push(sel.value); renderList(); });
+  controls.appendChild(addBtn);
+
+  wrap.appendChild(controls);
+  return { el: wrap, getChain: () => [...state.chain] };
+}
+
+function buildTierCard(tierName, tierLabel, tierCfg, idPrefix) {
+  const card = document.createElement('div');
+  card.className = 'tier-card';
+
+  const title = document.createElement('h4');
+  title.textContent = tierLabel;
+  card.appendChild(title);
+
+  // Provider dropdown
+  const provLabel = document.createElement('label');
+  provLabel.style.cssText = 'font-size:0.75rem;color:var(--muted)';
+  provLabel.textContent = 'Provider';
+  card.appendChild(provLabel);
+
+  const provSel = document.createElement('select');
+  provSel.id = `${idPrefix}-${tierName}-provider`;
+  provSel.style.cssText = 'font-size:0.78rem;padding:4px 8px;background:var(--surface2);border:1px solid var(--border);border-radius:5px;color:var(--text);outline:none;';
+  for (const p of TIER_PROVIDERS) {
+    const opt = document.createElement('option');
+    opt.value = p.id ?? '';
+    opt.textContent = p.label;
+    if ((tierCfg.provider ?? null) === (p.id ?? null)) opt.selected = true;
+    provSel.appendChild(opt);
+  }
+  card.appendChild(provSel);
+
+  // Chain editor
+  const chainLabel = document.createElement('label');
+  chainLabel.style.cssText = 'font-size:0.75rem;color:var(--muted)';
+  chainLabel.textContent = 'Fallback-Kette';
+  card.appendChild(chainLabel);
+
+  const { el: chainEl, getChain } = buildMiniChainEditor(tierCfg.chain ?? [], `${idPrefix}-${tierName}`);
+  card.appendChild(chainEl);
+
+  return { card, getProvider: () => provSel.value || null, getChain };
+}
+
+async function loadTranslationTiers() {
+  try {
+    const data = await api('GET', '/api/translation-tiers');
+    _tiersData = data;
+
+    // Render tier cards
+    const grid = document.getElementById('global-tiers-grid');
+    if (!grid) return;
+    grid.innerHTML = '';
+
+    const { card: premCard, getProvider: getPremProv, getChain: getPremChain } =
+      buildTierCard('premium', '⭐ Premium-Tier', data.translationTiers.premium ?? {}, 'global');
+    const { card: stdCard,  getProvider: getStdProv,  getChain: getStdChain  } =
+      buildTierCard('standard', '— Standard-Tier', data.translationTiers.standard ?? {}, 'global');
+
+    grid.appendChild(premCard);
+    grid.appendChild(stdCard);
+    // Store getters for saveGlobalTiers()
+    grid._getPremiumProvider = getPremProv;
+    grid._getPremiumChain    = getPremChain;
+    grid._getStandardProvider = getStdProv;
+    grid._getStandardChain    = getStdChain;
+
+    // Fill premium access fields
+    const dcRoles = document.getElementById('global-premium-dc-roles');
+    const tgUsers = document.getElementById('global-premium-tg-users');
+    if (dcRoles) dcRoles.value = (data.premiumAccess.discordRoleIds ?? []).join(', ');
+    if (tgUsers) tgUsers.value = (data.premiumAccess.telegramUserIds ?? []).join(', ');
+  } catch (err) {
+    const grid = document.getElementById('global-tiers-grid');
+    if (grid) grid.innerHTML = `<span style="font-size:0.8rem;color:var(--danger)">Fehler: ${err.message}</span>`;
+  }
+}
+
+async function saveGlobalTiers() {
+  const grid = document.getElementById('global-tiers-grid');
+  if (!grid?._getPremiumProvider) return;
+
+  const premiumProvider  = grid._getPremiumProvider();
+  const premiumChain     = grid._getPremiumChain();
+  const standardProvider = grid._getStandardProvider();
+  const standardChain    = grid._getStandardChain();
+
+  const dcRolesRaw = document.getElementById('global-premium-dc-roles')?.value ?? '';
+  const tgUsersRaw = document.getElementById('global-premium-tg-users')?.value ?? '';
+  const discordRoleIds  = dcRolesRaw.split(',').map(s => s.trim()).filter(Boolean);
+  const telegramUserIds = tgUsersRaw.split(',').map(s => s.trim()).filter(Boolean);
+
+  try {
+    await api('PATCH', '/api/translation-tiers', {
+      premium:  { provider: premiumProvider,  chain: premiumChain  },
+      standard: { provider: standardProvider, chain: standardChain }
+    });
+    await api('PATCH', '/api/premium-access', { discordRoleIds, telegramUserIds });
+    flashSaved('tiers-save-status');
+    showToast('Tier-Konfiguration gespeichert.', 'ok');
+  } catch (err) {
+    showToast('Fehler beim Speichern: ' + err.message, 'error');
+  }
+}
+
+// ── Per-pair Premium Panel ─────────────────────────────────────────────────────
+
+function buildPremiumPanel(pair) {
+  const panel = document.createElement('div');
+  panel.className = 'premium-panel';
+  panel.id = `premium-${pair.id}`;
+
+  const heading = document.createElement('h3');
+  heading.textContent = 'Premium-Zugang (Override)';
+  panel.appendChild(heading);
+
+  const hint = document.createElement('p');
+  hint.className = 'premium-hint';
+  hint.textContent = 'Überschreibt die globalen Tier-Einstellungen für diese Verbindung. Wenn deaktiviert, gelten die globalen Einstellungen.';
+  panel.appendChild(hint);
+
+  // Override toggle
+  const hasOverride = !!(pair.translationTiersOverride || pair.premiumAccessOverride);
+  const overrideRow = document.createElement('div');
+  overrideRow.className = 'toggle-row';
+  overrideRow.style.marginBottom = '14px';
+
+  const overrideToggle = toggle(`premium-override-${pair.id}`, hasOverride, (val) => {
+    body.style.display = val ? '' : 'none';
+  });
+  const overrideLabel = document.createElement('span');
+  overrideLabel.className = 'toggle-label';
+  overrideLabel.textContent = 'Override für diese Verbindung aktivieren';
+  overrideRow.appendChild(overrideToggle);
+  overrideRow.appendChild(overrideLabel);
+  panel.appendChild(overrideRow);
+
+  // Override body (shown only when toggle is on)
+  const body = document.createElement('div');
+  body.style.display = hasOverride ? '' : 'none';
+  body.id = `premium-body-${pair.id}`;
+
+  // Tier provider/chain cards
+  const tierGrid = document.createElement('div');
+  tierGrid.className = 'tier-grid';
+  tierGrid.style.marginBottom = '16px';
+
+  const premOvr = pair.translationTiersOverride?.premium  ?? { provider: null, chain: [] };
+  const stdOvr  = pair.translationTiersOverride?.standard ?? { provider: null, chain: [] };
+
+  const { card: premCard, getProvider: getPremProv, getChain: getPremChain } =
+    buildTierCard('premium', '⭐ Premium-Tier', premOvr, `pair-${pair.id}`);
+  const { card: stdCard,  getProvider: getStdProv,  getChain: getStdChain  } =
+    buildTierCard('standard', '— Standard-Tier', stdOvr, `pair-${pair.id}`);
+
+  tierGrid.appendChild(premCard);
+  tierGrid.appendChild(stdCard);
+  body.appendChild(tierGrid);
+
+  // Premium access override
+  const accessTitle = document.createElement('h4');
+  accessTitle.style.cssText = 'font-size:0.8rem;font-weight:600;color:var(--text);margin-bottom:8px';
+  accessTitle.textContent = 'Premium-Zugang (Override)';
+  body.appendChild(accessTitle);
+
+  // Discord roles – multi-checkbox loaded from guild
+  const dcAccessLabel = document.createElement('label');
+  dcAccessLabel.style.cssText = 'font-size:0.75rem;color:var(--muted);display:block;margin-bottom:4px';
+  dcAccessLabel.textContent = 'Discord Rollen mit Premium-Tier';
+  body.appendChild(dcAccessLabel);
+
+  const dcRolesList = document.createElement('div');
+  dcRolesList.className = 'roles-list';
+  dcRolesList.id = `premium-dc-roles-${pair.id}`;
+  const dcLoading = document.createElement('span');
+  dcLoading.style.cssText = 'font-size:0.8rem;color:var(--muted)';
+  dcLoading.textContent = 'Loading…';
+  dcRolesList.appendChild(dcLoading);
+  body.appendChild(dcRolesList);
+
+  // Telegram users
+  const tgLabel = document.createElement('label');
+  tgLabel.htmlFor = `premium-tg-${pair.id}`;
+  tgLabel.style.cssText = 'font-size:0.75rem;color:var(--muted);display:block;margin:12px 0 4px';
+  tgLabel.textContent = 'Telegram User-IDs mit Premium-Tier (kommagetrennt)';
+  body.appendChild(tgLabel);
+
+  const tgInput = document.createElement('input');
+  tgInput.type = 'text';
+  tgInput.id = `premium-tg-${pair.id}`;
+  tgInput.placeholder = '123456789, 987654321, …';
+  tgInput.style.cssText = 'width:100%;margin-bottom:12px';
+  const currentTgIds = pair.premiumAccessOverride?.telegramUserIds ?? [];
+  tgInput.value = currentTgIds.join(', ');
+  body.appendChild(tgInput);
+
+  // Footer
+  const footer = document.createElement('div');
+  footer.style.cssText = 'display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:8px';
+  const savedSp = document.createElement('span');
+  savedSp.className = 'save-status';
+  savedSp.id = `premium-save-status-${pair.id}`;
+  savedSp.textContent = '✓ Gespeichert';
+
+  const removeBtn = document.createElement('button');
+  removeBtn.type = 'button'; removeBtn.className = 'btn-ghost btn-sm';
+  removeBtn.textContent = 'Override entfernen';
+  removeBtn.addEventListener('click', async () => {
+    if (!confirm('Override dieser Verbindung entfernen? Danach gelten die globalen Einstellungen.')) return;
+    try {
+      await api('PATCH', `/api/pairs/${pair.id}/translation-tiers-override`, { remove: true });
+      await api('PATCH', `/api/pairs/${pair.id}/premium-access-override`,    { remove: true });
+      pair.translationTiersOverride = null;
+      pair.premiumAccessOverride    = null;
+      overrideToggle.querySelector('input').checked = false;
+      body.style.display = 'none';
+      showToast('Override entfernt.', 'ok');
+    } catch (err) { showToast('Fehler: ' + err.message, 'error'); }
+  });
+
+  const saveBtn = document.createElement('button');
+  saveBtn.type = 'button'; saveBtn.className = 'btn-primary btn-sm';
+  saveBtn.textContent = 'Override speichern';
+  saveBtn.addEventListener('click', async () => {
+    saveBtn.disabled = true;
+    try {
+      const selectedDcRoles = [...(dcRolesList.dataset.selected ? JSON.parse(dcRolesList.dataset.selected) : [])];
+      const tgIds = tgInput.value.split(',').map(s => s.trim()).filter(Boolean);
+
+      await api('PATCH', `/api/pairs/${pair.id}/translation-tiers-override`, {
+        premium:  { provider: getPremProv(),  chain: getPremChain()  },
+        standard: { provider: getStdProv(),   chain: getStdChain()   }
+      });
+      await api('PATCH', `/api/pairs/${pair.id}/premium-access-override`, {
+        discordRoleIds:  selectedDcRoles,
+        telegramUserIds: tgIds
+      });
+      flashSaved(`premium-save-status-${pair.id}`);
+      showToast('Override gespeichert.', 'ok');
+    } catch (err) {
+      showToast('Fehler: ' + err.message, 'error');
+    } finally {
+      saveBtn.disabled = false;
+    }
+  });
+
+  footer.append(savedSp, removeBtn, saveBtn);
+  body.appendChild(footer);
+  panel.appendChild(body);
+  return panel;
+}
+
+async function loadPremiumRoles(pairId, currentOverrideRoleIds) {
+  const listEl = document.getElementById(`premium-dc-roles-${pairId}`);
+  if (!listEl) return;
+  listEl.innerHTML = '<span style="font-size:0.8rem;color:var(--muted)">Loading…</span>';
+  try {
+    const roles = await api('GET', `/api/pairs/${pairId}/discord-roles`);
+    listEl.innerHTML = '';
+    if (!roles.length) {
+      listEl.innerHTML = '<span style="font-size:0.8rem;color:var(--muted)">Keine Rollen gefunden.</span>';
+      return;
+    }
+    const selected = new Set(currentOverrideRoleIds ?? []);
+    listEl.dataset.selected = JSON.stringify([...selected]);
+
+    for (const role of roles) {
+      const row = document.createElement('div');
+      row.className = 'toggle-row';
+      const tog = toggle(`prem-role-${pairId}-${role.id}`, selected.has(role.id), (val) => {
+        if (val) selected.add(role.id); else selected.delete(role.id);
+        listEl.dataset.selected = JSON.stringify([...selected]);
+      });
+      const lbl = document.createElement('span');
+      lbl.className = 'toggle-label';
+      lbl.style.display = 'flex';
+      lbl.style.alignItems = 'center';
+      if (role.color && role.color !== '#000000') {
+        const dot = document.createElement('span');
+        dot.className = 'role-color-dot';
+        dot.style.background = role.color;
+        lbl.appendChild(dot);
+      }
+      lbl.appendChild(document.createTextNode(role.name));
+      row.appendChild(tog);
+      row.appendChild(lbl);
+      listEl.appendChild(row);
+    }
+  } catch (err) {
+    listEl.innerHTML = `<span style="font-size:0.8rem;color:var(--danger)">Fehler: ${err.message}</span>`;
+  }
+}
+
 // ── Init ─────────────────────────────────────────────────────────────────────
 
 loadPairs();
 refreshStatus();
 setInterval(refreshStatus, 30_000);
+
+// ── Auto-Detect Telegram Chats ────────────────────────────────────────────────
+
+let _autoDetectTargetInputId = null;
+
+async function showAutoDetect(inputElementId) {
+  _autoDetectTargetInputId = inputElementId;
+  const modal = document.getElementById('autodetect-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  const chatsList = document.getElementById('autodetect-chats-list');
+  if (chatsList) chatsList.innerHTML = '<div style="font-size:0.8rem;color:var(--muted)">Lade…</div>';
+
+  try {
+    const data = await api('GET', '/api/telegram-chats');
+    chatsList.innerHTML = '';
+    if (!data.chats.length) {
+      chatsList.innerHTML = '<div style="font-size:0.8rem;color:var(--muted)">Keine Nachrichten empfangen. Schreib etwas in eine Telegram-Gruppe, um sie hier zu sehen.</div>';
+      return;
+    }
+    for (const chat of data.chats) {
+      const row = document.createElement('div');
+      row.className = 'autodetect-chat-row';
+      row.style.cssText = 'padding:8px;border:1px solid var(--border);border-radius:5px;margin-bottom:8px;cursor:pointer;transition:background .15s';
+      row.addEventListener('mouseenter', () => row.style.background = 'var(--surface2)');
+      row.addEventListener('mouseleave', () => row.style.background = '');
+      row.addEventListener('click', () => {
+        const inp = document.getElementById(inputElementId);
+        if (inp) inp.value = chat.chatId;
+        modal.style.display = 'none';
+      });
+
+      const info = document.createElement('div');
+      info.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
+      const idSpan = document.createElement('span');
+      idSpan.style.cssText = 'font-family:monospace;font-size:0.85rem;color:var(--accent-tg);font-weight:600';
+      idSpan.textContent = chat.chatId;
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'font-size:0.78rem;color:var(--muted)';
+      nameSpan.textContent = `von ${chat.senderName}`;
+      info.appendChild(idSpan);
+      info.appendChild(nameSpan);
+      row.appendChild(info);
+      chatsList.appendChild(row);
+    }
+  } catch (err) {
+    chatsList.innerHTML = `<div style="font-size:0.8rem;color:var(--danger)">Fehler: ${err.message}</div>`;
+  }
+}
+
+function closeAutoDetect() {
+  const modal = document.getElementById('autodetect-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+// Auto-detect modal HTML (injected at runtime)
+document.addEventListener('DOMContentLoaded', () => {
+  if (!document.getElementById('autodetect-modal')) {
+    const modal = document.createElement('div');
+    modal.id = 'autodetect-modal';
+    modal.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center;
+      z-index: 9999;
+    `;
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeAutoDetect();
+    });
+
+    const box = document.createElement('div');
+    box.style.cssText = `
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+      max-width: 500px; width: 90%; max-height: 400px; overflow-y: auto;
+    `;
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'font-size:0.9rem;font-weight:600;margin-bottom:12px;color:var(--text)';
+    title.textContent = 'Aktive Telegram Gruppen';
+    box.appendChild(title);
+
+    const hint = document.createElement('p');
+    hint.style.cssText = 'font-size:0.8rem;color:var(--muted);margin-bottom:12px';
+    hint.textContent = 'Die letzten Telegram-Gruppen, die Nachrichten gesendet haben. Klick auf eine, um die Chat-ID zu übernehmen.';
+    box.appendChild(hint);
+
+    const list = document.createElement('div');
+    list.id = 'autodetect-chats-list';
+    list.style.cssText = 'margin-bottom:12px;display:flex;flex-direction:column;gap:8px';
+    box.appendChild(list);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-ghost btn-sm';
+    closeBtn.textContent = 'Schließen';
+    closeBtn.addEventListener('click', closeAutoDetect);
+    closeBtn.style.cssText = 'align-self:flex-end';
+    box.appendChild(closeBtn);
+
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+  }
+});
 </script>
 </body>
 </html>

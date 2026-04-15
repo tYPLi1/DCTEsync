@@ -24,7 +24,7 @@
 import 'dotenv/config';
 import { startTelegram, sendToTelegram, downloadTelegramFile, bot, deleteFromTelegram } from './telegram.js';
 import { startDiscord,  sendToDiscord, reactOnDiscord }                                from './discord.js';
-import { getPairByTelegramId, getPairByDiscordId, getTranslationChain }                from './store.js';
+import { getPairByTelegramId, getPairByDiscordId, getTranslationChain, getTranslationTiers, getPremiumAccess } from './store.js';
 import { maybeTranslate }                                                              from './translation.js';
 import { store, tgToDc, dcToTg, removeByDc }                                          from './messageMap.js';
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
@@ -35,12 +35,41 @@ import { startWeb }                                                  from './web
 // unexpectedly (e.g. file-system errors in getTranslationChain).
 // This means a translator being down can never silently drop a message.
 
-async function safeTranslate(text, translationConfig, direction) {
+async function safeTranslate(text, translationConfig, direction, chain, providerOverride) {
   try {
-    return await maybeTranslate(text, translationConfig, direction, getTranslationChain());
+    return await maybeTranslate(text, translationConfig, direction, chain, providerOverride);
   } catch (err) {
     console.error(`[bridge] Translation threw unexpectedly, forwarding original text: ${err.message}`);
     return text;
+  }
+}
+
+// ── Recent Telegram chats (for auto-detect UI) ────────────────────────────────
+// Tracks the last N unique Telegram chat IDs that sent messages.
+const MAX_RECENT = 20;
+const recentTelegramChats = new Map(); // chatId → { timestamp, senderName }
+
+export function getRecentTelegramChats() {
+  return Array.from(recentTelegramChats.entries())
+    .sort((a, b) => b[1].timestamp - a[1].timestamp)
+    .slice(0, MAX_RECENT)
+    .map(([chatId, info]) => ({ chatId, ...info }));
+}
+
+function trackTelegramChat(chatId, senderName) {
+  recentTelegramChats.set(String(chatId), {
+    timestamp: Date.now(),
+    senderName: senderName || '(unknown)'
+  });
+  // Cleanup: keep only MAX_RECENT
+  if (recentTelegramChats.size > MAX_RECENT) {
+    const oldest = Math.min(...Array.from(recentTelegramChats.values()).map(v => v.timestamp));
+    for (const [cid, info] of recentTelegramChats.entries()) {
+      if (info.timestamp === oldest) {
+        recentTelegramChats.delete(cid);
+        break;
+      }
+    }
   }
 }
 
@@ -71,9 +100,57 @@ function isDcAllowed(mediaSync, category) {
   return mediaSync?.discordToTg?.[category] !== false;
 }
 
+// ── Translation tier resolution ───────────────────────────────────────────────
+
+/**
+ * Resolves which translation provider and fallback chain to use for a given
+ * user based on the two-tier access control config.
+ *
+ * Resolution order: per-pair override > global config.
+ * If the user matches the premium access list → premium tier, otherwise standard.
+ * If neither tier has a provider set → falls back to pair.translation.provider.
+ * If neither tier has a chain set → falls back to the global translationChain.
+ *
+ * @param {object} pair
+ * @param {{ platform: 'telegram'|'discord', userId?: string, roles?: Array<{id:string}> }} ctx
+ * @returns {{ provider: string, chain: string[] }}
+ */
+function resolveTierForUser(pair, { platform, userId, roles = [] }) {
+  const globalTiers  = getTranslationTiers();
+  const globalAccess = getPremiumAccess();
+  const globalChain  = getTranslationChain();
+
+  // Merge: per-pair override > global
+  const premiumCfg  = pair.translationTiersOverride?.premium  ?? globalTiers.premium  ?? { provider: null, chain: [] };
+  const standardCfg = pair.translationTiersOverride?.standard ?? globalTiers.standard ?? { provider: null, chain: [] };
+  const premiumRoleIds  = pair.premiumAccessOverride?.discordRoleIds  ?? globalAccess.discordRoleIds  ?? [];
+  const premiumUserIds  = pair.premiumAccessOverride?.telegramUserIds ?? globalAccess.telegramUserIds ?? [];
+
+  // Determine if this user qualifies for premium
+  let isPremium = false;
+  if (platform === 'discord' && premiumRoleIds.length) {
+    isPremium = roles.some(r => premiumRoleIds.includes(r.id));
+  } else if (platform === 'telegram' && premiumUserIds.length && userId) {
+    isPremium = premiumUserIds.includes(userId);
+  }
+
+  const tier     = isPremium ? premiumCfg : standardCfg;
+  const provider = tier.provider || null; // null = use pair.translation.provider (handled by maybeTranslate)
+  const chain    = (tier.chain?.length > 0) ? tier.chain : globalChain;
+
+  if (isPremium) {
+    console.log(`[bridge] tier=premium provider=${provider ?? 'default'} for ${platform} user=${userId ?? 'unknown'}`);
+  }
+
+  return { provider, chain };
+}
+
 // ── Telegram → Discord ────────────────────────────────────────────────────────
 
-async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, media, replyToMsgId, topicId }) {
+async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderId, text, media, replyToMsgId, topicId }) {
+  // Track this chat for auto-detect UI
+  trackTelegramChat(chatId, senderName);
+
   const pair = getPairByTelegramId(chatId, topicId);
   if (!pair) {
     console.log(`[bridge] TG→DC | no pair for chatId=${chatId}${topicId ? ` topicId=${topicId}` : ''} — message ignored`);
@@ -83,10 +160,12 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
   // Resolve reply: find the Discord message that corresponds to the TG message being replied to
   const dcReplyId = replyToMsgId ? tgToDc(pair.id, replyToMsgId) : null;
 
+  const { provider: tierProvider, chain: tierChain } = resolveTierForUser(pair, { platform: 'telegram', userId: senderId });
+
   // ── Text-only ──────────────────────────────────────────────────────────────
   if (!media) {
     if (!text) return;
-    const translated = await safeTranslate(text, pair.translation, 'tgToDiscord');
+    const translated = await safeTranslate(text, pair.translation, 'tgToDiscord', tierChain, tierProvider);
     console.log(`[bridge] TG→DC | pair=${pair.id} | text | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, translated, null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
@@ -141,7 +220,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
     }
 
     const captionRaw = media.caption || text || null;
-    const caption    = captionRaw ? await safeTranslate(captionRaw, pair.translation, 'tgToDiscord') : null;
+    const caption    = captionRaw ? await safeTranslate(captionRaw, pair.translation, 'tgToDiscord', tierChain, tierProvider) : null;
 
     console.log(`[bridge] TG→DC | pair=${pair.id} | type=${media.type} | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, caption,
@@ -153,7 +232,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, text, m
 
 // ── Discord → Telegram ────────────────────────────────────────────────────────
 
-async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, text, attachments, roles = [], replyToMsgId }) {
+async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, authorId, text, attachments, roles = [], replyToMsgId }) {
   const pair = getPairByDiscordId(channelId);
   if (!pair) return;
 
@@ -172,8 +251,10 @@ async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, 
   if (tgReplyId)          sendOpts.replyToMsgId = Number(tgReplyId);
   if (pair.telegramTopicId) sendOpts.topicId    = pair.telegramTopicId;
 
+  const { provider: tierProvider, chain: tierChain } = resolveTierForUser(pair, { platform: 'discord', userId: authorId, roles });
+
   const translatedText = text
-    ? await safeTranslate(text, pair.translation, 'discordToTg')
+    ? await safeTranslate(text, pair.translation, 'discordToTg', tierChain, tierProvider)
     : null;
 
   // ── Text-only ──────────────────────────────────────────────────────────────
