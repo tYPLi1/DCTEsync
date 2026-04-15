@@ -114,6 +114,12 @@ export function addMicrosoftChars(n) {
   write(config);
 }
 
+export function setMicrosoftChars(n) {
+  const config = read();
+  config.microsoftUsage = { chars: Math.max(0, n), month: currentMonth() };
+  write(config);
+}
+
 /**
  * Default translation config applied to every new pair.
  * Translation is OFF by default; the user explicitly enables it per pair.

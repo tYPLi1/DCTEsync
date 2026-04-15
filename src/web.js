@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, getTranslationChain, setTranslationChain } from './store.js';
+import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, getTranslationChain, setTranslationChain, setMicrosoftChars } from './store.js';
 import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
@@ -297,6 +297,18 @@ export function startWeb() {
   // Returns the locally-tracked Microsoft Translator character count for the
   // current calendar month. Azure has no usage API, so we count ourselves.
   app.get('/api/microsoft-usage', (_req, res) => {
+    res.json(getMicrosoftUsage());
+  });
+
+  // ── POST /api/microsoft-usage ─────────────────────────────────────────────
+  // Manually override the character counter. Body: { chars: <number> }
+  app.post('/api/microsoft-usage', (req, res) => {
+    const chars = Number(req.body?.chars);
+    if (!Number.isFinite(chars) || chars < 0) {
+      return res.status(400).json({ error: 'chars must be a non-negative number.' });
+    }
+    setMicrosoftChars(chars);
+    console.log(`[web] Microsoft usage counter set to ${chars}`);
     res.json(getMicrosoftUsage());
   });
 

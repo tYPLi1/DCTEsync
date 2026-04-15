@@ -677,6 +677,18 @@
                   <span id="ms-usage-text"></span>
                   <span class="usage-note"> · Lokal gezählt · Reset am 1. des Monats</span>
                 </span>
+                <div style="display:flex;align-items:center;gap:6px;margin-top:4px;">
+                  <input type="number" id="ms-usage-input" min="0" max="2000000" placeholder="Zähler korrigieren…"
+                    style="width:170px;font-size:0.72rem;padding:2px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);" />
+                  <button type="button" onclick="setMicrosoftUsage()"
+                    style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);cursor:pointer;">
+                    Setzen
+                  </button>
+                  <button type="button" onclick="setMicrosoftUsage(0)"
+                    style="font-size:0.72rem;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--muted);cursor:pointer;">
+                    Zurücksetzen
+                  </button>
+                </div>
               </div>
             </div>
             <div class="form-group">
@@ -1515,6 +1527,23 @@ function unlockField(id, btn) {
     btn.classList.remove('unlocked');
     // Restore *** placeholder if the field had a value before
     input.placeholder = input.dataset.hasValue === '1' ? '***' : '';
+  }
+}
+
+async function setMicrosoftUsage(forceValue) {
+  const input = document.getElementById('ms-usage-input');
+  const chars = forceValue !== undefined ? forceValue : parseInt(input?.value ?? '', 10);
+  if (!Number.isFinite(chars) || chars < 0) {
+    showToast('Bitte eine gültige Zahl eingeben.', 'error');
+    return;
+  }
+  try {
+    await api('POST', '/api/microsoft-usage', { chars });
+    if (input) input.value = '';
+    await loadMicrosoftUsage();
+    showToast('Zähler aktualisiert.', 'success');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
   }
 }
 
