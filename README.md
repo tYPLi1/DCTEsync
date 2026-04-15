@@ -61,17 +61,46 @@ Each type can be toggled on/off **per pair** and **per direction** in the dashbo
 
 Translation is **disabled by default**. You can enable it per pair and per direction (TG→DC and DC→TG independently) in the dashboard.
 
-| Provider | Type | Needs Key | Self-hosted |
-|---|---|---|---|
-| Anthropic (Claude Haiku) | AI model | `ANTHROPIC_API_KEY` | No |
-| OpenAI (GPT-4o-mini) | AI model | `OPENAI_API_KEY` | No |
-| Ollama | Local AI model | — | **Yes** |
-| Google Translate | Translation API | `GOOGLE_TRANSLATE_API_KEY` | No |
-| DeepL | Translation API | `DEEPL_API_KEY` (free tier available) | No |
-| LibreTranslate | Translation API | — (optional) | **Yes** |
-| Microsoft Translator | Translation API | `MICROSOFT_TRANSLATOR_KEY` | No |
+| Provider | Type | Needs Key | Self-hosted | Notes |
+|---|---|---|---|---|
+| Anthropic (Claude Haiku) | AI model | `ANTHROPIC_API_KEY` | No | Prompt caching for cost reduction |
+| OpenAI (GPT-4o-mini) | AI model | `OPENAI_API_KEY` | No | — |
+| Ollama | Local AI model | — | **Yes** | No external API needed |
+| Google Translate | Translation API | `GOOGLE_TRANSLATE_API_KEY` | No | — |
+| DeepL | Translation API | `DEEPL_API_KEY` (free tier available) | No | Character usage tracked in dashboard |
+| LibreTranslate | Translation API | — (optional) | **Yes** | No external API needed |
+| Microsoft Translator | Translation API | `MICROSOFT_TRANSLATOR_KEY` | No | 2M chars/month free tier, usage tracked & adjustable |
 
 The Anthropic provider uses **prompt caching** — the translation instruction is cached across calls, reducing latency and token costs for repeated translations.
+
+### Translation Chain & Fallback
+
+When a pair has translation enabled, the system tries providers in this order:
+1. **Primary provider** (selected in the pair's translation settings)
+2. **Fallback chain** (global list configured in Settings → Translation Chain)
+
+When a provider **hits its quota** (e.g., DeepL's character limit or Microsoft's 2M/month), it is automatically marked as exhausted and the next provider in the chain is tried. You can manually reset exhausted providers in the dashboard.
+
+The special value `none` in the chain means "stop and return original text" — useful if you want translation to be optional.
+
+**Example**: if your pair uses `deepl` and the chain is `[deepl, microsoft, none]`:
+- DeepL runs first
+- If DeepL hits its quota → Microsoft Translator takes over
+- If Microsoft also exhausted → text forwarded without translation
+
+---
+
+## Microsoft Translator (Azure) — Free Tier Tracking
+
+Microsoft's free tier allows **2,000,000 characters per month** (UTC calendar month, auto-resets on the 1st). The bridge tracks this locally and:
+
+- **Counts characters** automatically before each API call
+- **Persists the counter** in `data/config.json`
+- **Auto-resets** on the first day of each calendar month (UTC)
+- **Shows usage in the dashboard** with a visual progress bar (yellow warning at 70%, red danger at 90%)
+- **Detects quota errors** (Azure error code `403001`) and automatically switches to the next provider in the fallback chain
+
+You can **manually adjust the counter** in Settings → Microsoft Translator Key section if the local count drifts (e.g., after a service restart). Enter a value and click "Setzen" or "Zurücksetzen" to reset to 0.
 
 ---
 
@@ -191,17 +220,18 @@ Open `http://your-host:PORT` after starting the bridge.
 **Change API keys or tokens** (click **⚙ Settings** in the top-right):
 - Update any token or API key without re-running `setup.sh`
 - Sensitive fields show the current masked value as a placeholder — leave blank to keep it, or type a new value to replace it
-- Changes are written to `.env` immediately; restart the bridge to apply them:
-  ```bash
-  systemctl restart tg-bridge   # or: docker compose up -d --build
-  ```
+- Changes are written to `.env` immediately and take effect without a service restart
+- **Microsoft Translator**: shows character count and monthly quota. You can manually adjust the counter with the input field and buttons ("Setzen" / "Zurücksetzen") if needed.
+- **DeepL**: shows character usage from DeepL's API
+- **Translation Chain**: configure the fallback order (e.g., `[deepl, microsoft, none]`) — when the primary provider on a pair exhausts its quota, the next in the chain is tried
 
 **Configure translation per pair** (click **Translation** button):
 - Toggle the master switch to enable translation for this pair
 - Enable each direction independently (`Telegram → Discord` and `Discord → Telegram`)
 - Select the target language for each direction
-- Choose the AI provider from the dropdown
+- Choose the primary AI provider from the dropdown
 - All changes save instantly, no restart needed
+- If the primary provider hits its quota, the fallback chain takes over automatically
 
 ---
 
@@ -318,3 +348,4 @@ sudo systemctl stop tg-bridge       # stop
 - **Media groups / albums**: Each photo in a Telegram album is forwarded as a separate message.
 - **Discord embeds**: Tenor GIFs, YouTube previews and other link embeds are not forwarded (no attachment data available).
 - **Anonymous group admins**: Messages posted anonymously via a linked channel are treated as bot messages and skipped.
+- **Microsoft Translator quota**: Tracked locally (no official Azure quota API). If the counter drifts after a restart, you can manually adjust it in the dashboard. The free tier resets automatically on the 1st of each month (UTC).
