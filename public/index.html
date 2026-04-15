@@ -824,7 +824,10 @@
         </div>
         <div class="form-group">
           <label for="f-tg">Telegram Chat ID</label>
-          <input type="text" id="f-tg" placeholder="-1001234567890" required />
+          <div style="display:flex;gap:8px;align-items:flex-end">
+            <input type="text" id="f-tg" placeholder="-1001234567890" required style="flex:1" />
+            <button type="button" class="btn-ghost btn-sm" onclick="showAutoDetect('f-tg')" title="Auto-Detect">🔍</button>
+          </div>
         </div>
         <div class="form-group">
           <label for="f-topic" title="For Telegram forum groups only. Leave blank to bridge the whole chat.">Telegram Topic ID <span style="font-weight:400;color:var(--muted)">(optional)</span></label>
@@ -1281,11 +1284,29 @@ function buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }) {
 
   const { group: gLabel,  input: iLabel  } = field(`e-label-${pair.id}`,  'Label (optional)',                    pair.label,             'z.B. General');
   const { group: gTg,    input: iTg     } = field(`e-tg-${pair.id}`,     'Telegram Chat ID',                    pair.telegramChatId,    '-1001234567890');
+  // Add auto-detect button to gTg
+  const autoDetectBtn = document.createElement('button');
+  autoDetectBtn.type = 'button';
+  autoDetectBtn.className = 'btn-ghost btn-sm';
+  autoDetectBtn.textContent = '🔍';
+  autoDetectBtn.title = 'Auto-Detect';
+  autoDetectBtn.addEventListener('click', (e) => { e.preventDefault(); showAutoDetect(`e-tg-${pair.id}`); });
+  const gTgWrapper = document.createElement('div');
+  gTgWrapper.style.cssText = 'display:flex;gap:8px;align-items:flex-end';
+  iTg.style.flex = '1';
+  gTgWrapper.appendChild(iTg);
+  gTgWrapper.appendChild(autoDetectBtn);
+  const gTgNew = document.createElement('div');
+  gTgNew.className = gTg.className;
+  const gTgLabel = gTg.querySelector('label');
+  gTgNew.appendChild(gTgLabel);
+  gTgNew.appendChild(gTgWrapper);
+
   const { group: gTopic, input: iTopic  } = field(`e-topic-${pair.id}`,  'Telegram Topic ID (optional)',         pair.telegramTopicId ?? '', 'Forum topic ID');
   const { group: gDc,    input: iDc     } = field(`e-dc-${pair.id}`,     'Discord Channel ID',                  pair.discordChannelId,  '123456789012345678');
   const { group: gWh,    input: iWh     } = field(`e-wh-${pair.id}`,     'Discord Webhook URL',                 pair.discordWebhookUrl, 'https://discord.com/api/webhooks/…', true);
 
-  grid.append(gLabel, gTg, gTopic, gDc, gWh);
+  grid.append(gLabel, gTgNew, gTopic, gDc, gWh);
   panel.appendChild(grid);
 
   const footer = document.createElement('div');
@@ -2400,6 +2421,110 @@ async function loadPremiumRoles(pairId, currentOverrideRoleIds) {
 loadPairs();
 refreshStatus();
 setInterval(refreshStatus, 30_000);
+
+// ── Auto-Detect Telegram Chats ────────────────────────────────────────────────
+
+let _autoDetectTargetInputId = null;
+
+async function showAutoDetect(inputElementId) {
+  _autoDetectTargetInputId = inputElementId;
+  const modal = document.getElementById('autodetect-modal');
+  if (!modal) return;
+  modal.style.display = 'flex';
+
+  const chatsList = document.getElementById('autodetect-chats-list');
+  if (chatsList) chatsList.innerHTML = '<div style="font-size:0.8rem;color:var(--muted)">Lade…</div>';
+
+  try {
+    const data = await api('GET', '/api/telegram-chats');
+    chatsList.innerHTML = '';
+    if (!data.chats.length) {
+      chatsList.innerHTML = '<div style="font-size:0.8rem;color:var(--muted)">Keine Nachrichten empfangen. Schreib etwas in eine Telegram-Gruppe, um sie hier zu sehen.</div>';
+      return;
+    }
+    for (const chat of data.chats) {
+      const row = document.createElement('div');
+      row.className = 'autodetect-chat-row';
+      row.style.cssText = 'padding:8px;border:1px solid var(--border);border-radius:5px;margin-bottom:8px;cursor:pointer;transition:background .15s';
+      row.addEventListener('mouseenter', () => row.style.background = 'var(--surface2)');
+      row.addEventListener('mouseleave', () => row.style.background = '');
+      row.addEventListener('click', () => {
+        const inp = document.getElementById(inputElementId);
+        if (inp) inp.value = chat.chatId;
+        modal.style.display = 'none';
+      });
+
+      const info = document.createElement('div');
+      info.style.cssText = 'display:flex;justify-content:space-between;align-items:center';
+      const idSpan = document.createElement('span');
+      idSpan.style.cssText = 'font-family:monospace;font-size:0.85rem;color:var(--accent-tg);font-weight:600';
+      idSpan.textContent = chat.chatId;
+      const nameSpan = document.createElement('span');
+      nameSpan.style.cssText = 'font-size:0.78rem;color:var(--muted)';
+      nameSpan.textContent = `von ${chat.senderName}`;
+      info.appendChild(idSpan);
+      info.appendChild(nameSpan);
+      row.appendChild(info);
+      chatsList.appendChild(row);
+    }
+  } catch (err) {
+    chatsList.innerHTML = `<div style="font-size:0.8rem;color:var(--danger)">Fehler: ${err.message}</div>`;
+  }
+}
+
+function closeAutoDetect() {
+  const modal = document.getElementById('autodetect-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+// Auto-detect modal HTML (injected at runtime)
+document.addEventListener('DOMContentLoaded', () => {
+  if (!document.getElementById('autodetect-modal')) {
+    const modal = document.createElement('div');
+    modal.id = 'autodetect-modal';
+    modal.style.cssText = `
+      position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+      background: rgba(0,0,0,.7); display: none; align-items: center; justify-content: center;
+      z-index: 9999;
+    `;
+    modal.addEventListener('click', (e) => {
+      if (e.target === modal) closeAutoDetect();
+    });
+
+    const box = document.createElement('div');
+    box.style.cssText = `
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px;
+      max-width: 500px; width: 90%; max-height: 400px; overflow-y: auto;
+    `;
+
+    const title = document.createElement('h3');
+    title.style.cssText = 'font-size:0.9rem;font-weight:600;margin-bottom:12px;color:var(--text)';
+    title.textContent = 'Aktive Telegram Gruppen';
+    box.appendChild(title);
+
+    const hint = document.createElement('p');
+    hint.style.cssText = 'font-size:0.8rem;color:var(--muted);margin-bottom:12px';
+    hint.textContent = 'Die letzten Telegram-Gruppen, die Nachrichten gesendet haben. Klick auf eine, um die Chat-ID zu übernehmen.';
+    box.appendChild(hint);
+
+    const list = document.createElement('div');
+    list.id = 'autodetect-chats-list';
+    list.style.cssText = 'margin-bottom:12px;display:flex;flex-direction:column;gap:8px';
+    box.appendChild(list);
+
+    const closeBtn = document.createElement('button');
+    closeBtn.type = 'button';
+    closeBtn.className = 'btn-ghost btn-sm';
+    closeBtn.textContent = 'Schließen';
+    closeBtn.addEventListener('click', closeAutoDetect);
+    closeBtn.style.cssText = 'align-self:flex-end';
+    box.appendChild(closeBtn);
+
+    modal.appendChild(box);
+    document.body.appendChild(modal);
+  }
+});
 </script>
 </body>
 </html>

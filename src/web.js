@@ -7,6 +7,7 @@ import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT
 import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage, getLibreUsage } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
+import { getRecentTelegramChats } from './bridge.js';
 
 const ENV_PATH = resolve(process.cwd(), '.env');
 
@@ -630,6 +631,15 @@ export function startWeb() {
     updatePair(req.params.id, { premiumAccessOverride: merged });
     console.log(`[web] Premium access override updated for pair ${req.params.id}`);
     res.json({ ok: true, premiumAccessOverride: merged });
+  });
+
+  // ── GET /api/telegram-chats ──────────────────────────────────────────────
+  // Returns recent Telegram chat IDs (for auto-detect UI).
+  // Sorted by most recent first.
+  app.get('/api/telegram-chats', (_req, res) => {
+    res.json({
+      chats: getRecentTelegramChats()
+    });
   });
 
   app.listen(PORT, () => {

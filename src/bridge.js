@@ -30,6 +30,35 @@ import { store, tgToDc, dcToTg, removeByDc }                                    
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
 import { startWeb }                                                  from './web.js';
 
+// ── Recent Telegram chats (for auto-detect UI) ────────────────────────────────
+// Tracks the last N unique Telegram chat IDs that sent messages.
+const MAX_RECENT = 20;
+const recentTelegramChats = new Map(); // chatId → { timestamp, senderName }
+
+export function getRecentTelegramChats() {
+  return Array.from(recentTelegramChats.entries())
+    .sort((a, b) => b[1].timestamp - a[1].timestamp)
+    .slice(0, MAX_RECENT)
+    .map(([chatId, info]) => ({ chatId, ...info }));
+}
+
+function trackTelegramChat(chatId, senderName) {
+  recentTelegramChats.set(String(chatId), {
+    timestamp: Date.now(),
+    senderName: senderName || '(unknown)'
+  });
+  // Cleanup: keep only MAX_RECENT
+  if (recentTelegramChats.size > MAX_RECENT) {
+    const oldest = Math.min(...Array.from(recentTelegramChats.values()).map(v => v.timestamp));
+    for (const [cid, info] of recentTelegramChats.entries()) {
+      if (info.timestamp === oldest) {
+        recentTelegramChats.delete(cid);
+        break;
+      }
+    }
+  }
+}
+
 // ── mediaSync helpers ─────────────────────────────────────────────────────────
 
 const TG_TYPE_KEY = {
@@ -105,6 +134,9 @@ function resolveTierForUser(pair, { platform, userId, roles = [] }) {
 // ── Telegram → Discord ────────────────────────────────────────────────────────
 
 async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderId, text, media, replyToMsgId, topicId }) {
+  // Track this chat for auto-detect UI
+  trackTelegramChat(chatId, senderName);
+
   const pair = getPairByTelegramId(chatId, topicId);
   if (!pair) {
     console.log(`[bridge] TG→DC | no pair for chatId=${chatId}${topicId ? ` topicId=${topicId}` : ''} — message ignored`);
