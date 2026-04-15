@@ -35,8 +35,36 @@ export function getPairs() {
   return read().pairs;
 }
 
-export function getPairByTelegramId(telegramChatId) {
-  return getPairs().find(p => String(p.telegramChatId) === String(telegramChatId)) || null;
+/**
+ * Find a pair by Telegram chat ID, optionally scoped to a forum topic.
+ *
+ * Lookup order:
+ *  1. Exact match: same chatId AND same topicId
+ *  2. Catch-all:   same chatId, no topicId configured (topicId = null / undefined)
+ *
+ * Pass topicId = null (default) to match only non-topic pairs.
+ *
+ * @param {string|number} telegramChatId
+ * @param {number|null} [topicId]
+ */
+export function getPairByTelegramId(telegramChatId, topicId = null) {
+  const pairs = getPairs();
+  const chatStr = String(telegramChatId);
+
+  // 1. Exact match (chatId + topicId)
+  if (topicId != null) {
+    const exact = pairs.find(p =>
+      String(p.telegramChatId) === chatStr &&
+      (p.telegramTopicId ?? null) === topicId
+    );
+    if (exact) return exact;
+  }
+
+  // 2. Catch-all: same chatId, no topic configured
+  return pairs.find(p =>
+    String(p.telegramChatId) === chatStr &&
+    !p.telegramTopicId
+  ) ?? null;
 }
 
 export function getPairByDiscordId(discordChannelId) {
@@ -81,6 +109,13 @@ export function setTranslationChain(chain) {
   config.translationChain = chain;
   write(config);
 }
+
+/**
+ * Default extra fields applied to every new pair.
+ * telegramTopicId: null = bridge the whole group/channel (no topic filtering).
+ *                  integer = bridge only this forum topic thread.
+ */
+export const DEFAULT_TOPIC = { telegramTopicId: null };
 
 /**
  * Default translation config applied to every new pair.
