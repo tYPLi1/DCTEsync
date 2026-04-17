@@ -1,7 +1,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
 
-const DATA_FILE = process.env.DATA_FILE || './data/config.json';
+const DATA_FILE  = process.env.DATA_FILE || './data/config.json';
+// Stored separately so frequent message-map writes don't touch the main config.
+const MSGMAP_FILE = join(dirname(DATA_FILE), 'msgmap.json');
 
 const DEFAULT_CONFIG = {
   pairs: []
@@ -327,4 +329,31 @@ export function setBotWhitelist(wl) {
     discordToTg: Array.isArray(wl.discordToTg) ? wl.discordToTg : []
   };
   write(config);
+}
+
+// ── Persistent message map ─────────────────────────────────────────────────────
+// Stored in data/msgmap.json (separate file) so frequent per-message writes
+// do not affect the main config.json.
+// Format: { [pairId]: [ { tg: string, dc: string }, … ] }  (oldest → newest)
+
+function readMsgMap() {
+  if (!existsSync(MSGMAP_FILE)) return {};
+  try { return JSON.parse(readFileSync(MSGMAP_FILE, 'utf-8')); }
+  catch { return {}; }
+}
+
+export function loadAllMsgMaps() {
+  return readMsgMap();
+}
+
+export function saveMsgMap(pairId, entries) {
+  const data = readMsgMap();
+  data[pairId] = entries;
+  writeFileSync(MSGMAP_FILE, JSON.stringify(data), 'utf-8');
+}
+
+export function deleteMsgMap(pairId) {
+  const data = readMsgMap();
+  delete data[pairId];
+  writeFileSync(MSGMAP_FILE, JSON.stringify(data), 'utf-8');
 }

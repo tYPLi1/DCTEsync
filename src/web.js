@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, DEFAULT_BOT_SYNC, DEFAULT_BOT_WHITELIST, getBotWhitelist, setBotWhitelist, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage, getDeepLKeys, setDeepLKeys } from './store.js';
+import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, DEFAULT_BOT_SYNC, DEFAULT_BOT_WHITELIST, getBotWhitelist, setBotWhitelist, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage, getDeepLKeys, setDeepLKeys, deleteMsgMap } from './store.js';
 import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage, getLibreUsage, getExhaustedDeepLKeyIndices, resetExhaustedDeepLKey, rebuildExhaustedDeepLKeys } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
@@ -192,7 +192,8 @@ export function startWeb() {
       discordWebhookUrl,
       translation: { ...DEFAULT_TRANSLATION },
       mediaSync:   JSON.parse(JSON.stringify(DEFAULT_MEDIA_SYNC)),
-      botSync:     { ...DEFAULT_BOT_SYNC }
+      botSync:     { ...DEFAULT_BOT_SYNC },
+      msgMapLimit: 200
     };
 
     addPair(pair);
@@ -271,6 +272,7 @@ export function startWeb() {
   app.delete('/api/pairs/:id', (req, res) => {
     const removed = removePair(req.params.id);
     if (!removed) return res.status(404).json({ error: 'Pair not found.' });
+    deleteMsgMap(req.params.id);
     console.log(`[web] Pair removed: ${req.params.id}`);
     res.json({ ok: true });
   });
@@ -331,6 +333,20 @@ export function startWeb() {
 
     console.log(`[web] BotSync updated: ${req.params.id}`);
     res.json(merged);
+  });
+
+  // ── PATCH /api/pairs/:id/msg-map-limit ───────────────────────────────────
+  // Set per-pair message history limit (10–200). Default is 200.
+  app.patch('/api/pairs/:id/msg-map-limit', (req, res) => {
+    const limit = parseInt(req.body?.limit, 10);
+    if (isNaN(limit) || limit < 10 || limit > 200) {
+      return res.status(400).json({ error: 'limit must be between 10 and 200.' });
+    }
+    if (!updatePair(req.params.id, { msgMapLimit: limit })) {
+      return res.status(404).json({ error: 'Pair not found.' });
+    }
+    console.log(`[web] MsgMapLimit updated: ${req.params.id} → ${limit}`);
+    res.json({ ok: true, msgMapLimit: limit });
   });
 
   // ── GET /api/bot-whitelist ─────────────────────────────────────────────────

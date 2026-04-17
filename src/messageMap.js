@@ -5,15 +5,12 @@
  * Used by reply sync and reaction sync so each side can reference the
  * corresponding forwarded message on the other platform.
  *
- * The store is purely in-memory — it is intentionally NOT persisted.
- * After a restart, reactions/replies on pre-restart messages are simply
- * ignored (no crash, no incorrect targeting).
- *
- * Each pair's store is bounded to MAX_PER_PAIR entries.
- * When the limit is reached the oldest entry is evicted (FIFO).
+ * The in-memory store is bounded to msgMapLimit per pair (default 200).
+ * bridge.js persists the store to disk (debounced) and loads it on startup
+ * so mappings survive restarts.
  */
 
-const MAX_PER_PAIR = 5000;
+const DEFAULT_LIMIT = 200;
 
 /**
  * Per-pair store:
@@ -33,18 +30,19 @@ function getOrCreate(pairId) {
 /**
  * Store a TG ↔ DC message-ID pair.
  *
- * @param {string} pairId   Bridge pair UUID
- * @param {number|string} tgMsgId   Telegram message_id
- * @param {string} dcMsgId          Discord message snowflake
+ * @param {string} pairId
+ * @param {number|string} tgMsgId
+ * @param {string} dcMsgId
+ * @param {number} [limit]  Max entries to keep (default 200, max enforced by caller)
  */
-export function store(pairId, tgMsgId, dcMsgId) {
+export function store(pairId, tgMsgId, dcMsgId, limit = DEFAULT_LIMIT) {
   if (!tgMsgId || !dcMsgId) return;
   const tg = String(tgMsgId);
   const dc = String(dcMsgId);
   const m  = getOrCreate(pairId);
 
-  // Evict oldest entry when at capacity
-  if (m.order.length >= MAX_PER_PAIR) {
+  // Evict oldest entries until we are below the limit
+  while (m.order.length >= limit) {
     const oldest = m.order.shift();
     const oldDc  = m.tgToDc.get(oldest);
     m.tgToDc.delete(oldest);
@@ -57,35 +55,44 @@ export function store(pairId, tgMsgId, dcMsgId) {
 }
 
 /**
- * Look up which Discord message ID corresponds to a Telegram message ID.
+ * Populate a pair's store from persisted entries (called once on startup).
+ * Entries are [ { tg, dc }, … ] ordered oldest → newest.
  *
  * @param {string} pairId
- * @param {number|string} tgMsgId
- * @returns {string|null}
+ * @param {Array<{tg:string, dc:string}>} entries
+ * @param {number} [limit]
  */
+export function loadPersisted(pairId, entries, limit = DEFAULT_LIMIT) {
+  if (!Array.isArray(entries) || !entries.length) return;
+  // Take only the last `limit` entries to respect the current limit even if
+  // the persisted file was written with a higher limit.
+  const slice = entries.slice(-limit);
+  for (const { tg, dc } of slice) {
+    if (tg && dc) store(pairId, tg, dc, limit);
+  }
+}
+
+/**
+ * Export all stored entries for a pair as an ordered array (oldest → newest).
+ * Used by bridge.js to persist the map to disk.
+ *
+ * @param {string} pairId
+ * @returns {Array<{tg:string, dc:string}>}
+ */
+export function getAll(pairId) {
+  const m = maps.get(pairId);
+  if (!m) return [];
+  return m.order.map(tg => ({ tg, dc: m.tgToDc.get(tg) }));
+}
+
 export function tgToDc(pairId, tgMsgId) {
   return maps.get(pairId)?.tgToDc.get(String(tgMsgId)) ?? null;
 }
 
-/**
- * Look up which Telegram message ID corresponds to a Discord message ID.
- *
- * @param {string} pairId
- * @param {string} dcMsgId
- * @returns {string|null}
- */
 export function dcToTg(pairId, dcMsgId) {
   return maps.get(pairId)?.dcToTg.get(String(dcMsgId)) ?? null;
 }
 
-/**
- * Remove the mapping entry identified by its Discord message ID.
- * Cleans up both directions (tgToDc and dcToTg) and the order array.
- * Called when a Discord message is deleted so the mapping stays consistent.
- *
- * @param {string} pairId
- * @param {string} dcMsgId
- */
 export function removeByDc(pairId, dcMsgId) {
   const m = maps.get(pairId);
   if (!m) return;
@@ -98,9 +105,6 @@ export function removeByDc(pairId, dcMsgId) {
   m.dcToTg.delete(dc);
 }
 
-/**
- * Return the number of stored entries for a pair (for diagnostics).
- */
 export function size(pairId) {
   return maps.get(pairId)?.order.length ?? 0;
 }

@@ -1359,6 +1359,38 @@ function buildMediaPanel(pair) {
 
   panel.appendChild(botGrid);
 
+  // ── Message history limit ─────────────────────────────────────────────────
+  const histDiv = document.createElement('div');
+  histDiv.style.cssText = 'margin-top:18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+  const histLabel = document.createElement('label');
+  histLabel.textContent = 'Nachrichtenverlauf (max. 200):';
+  histLabel.style.cssText = 'font-size:0.8rem;font-weight:600;white-space:nowrap';
+  const histInput = document.createElement('input');
+  histInput.type = 'number';
+  histInput.min = '10';
+  histInput.max = '200';
+  histInput.value = pair.msgMapLimit ?? 200;
+  histInput.style.cssText = 'width:72px;font-size:0.8rem;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)';
+  const histHint = document.createElement('span');
+  histHint.style.cssText = 'font-size:0.72rem;color:var(--muted)';
+  histHint.textContent = 'Nachrichten pro Pair im Speicher + auf Disk';
+  const histBtn = document.createElement('button');
+  histBtn.className = 'btn-ghost btn-sm';
+  histBtn.textContent = 'Speichern';
+  histBtn.onclick = async () => {
+    const v = parseInt(histInput.value, 10);
+    if (isNaN(v) || v < 10 || v > 200) { showToast('Wert muss zwischen 10 und 200 liegen.', 'error'); return; }
+    try {
+      await api('PATCH', `/api/pairs/${pair.id}/msg-map-limit`, { limit: v });
+      flashSaved(`media-save-status-${pair.id}`);
+    } catch (err) { showToast('Fehler: ' + err.message, 'error'); }
+  };
+  histDiv.appendChild(histLabel);
+  histDiv.appendChild(histInput);
+  histDiv.appendChild(histBtn);
+  histDiv.appendChild(histHint);
+  panel.appendChild(histDiv);
+
   // Save indicator
   const footer = document.createElement('div');
   footer.style.cssText = 'margin-top:12px;display:flex;justify-content:flex-end';
