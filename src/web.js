@@ -454,14 +454,18 @@ export function startWeb() {
   });
 
   // ── GET /api/deepl-usage ─────────────────────────────────────────────────
-  // Proxies DeepL /v2/usage for every registered key in parallel.
+  // Fetches DeepL /v2/usage for every registered key sequentially with a small
+  // delay between requests to avoid sending a burst of parallel calls from one IP.
   // Returns { keys: [{ index, masked, isFree, exhausted, usage?: {...}, error?: string }] }
   app.get('/api/deepl-usage', async (req, res) => {
     const keys      = getDeepLKeys();
     if (!keys.length) return res.status(404).json({ error: 'No DeepL keys configured.' });
     const exhausted = new Set(getExhaustedDeepLKeyIndices());
 
-    const results = await Promise.all(keys.map(async (k, i) => {
+    const results = [];
+    for (let i = 0; i < keys.length; i++) {
+      if (i > 0) await new Promise(r => setTimeout(r, 150));
+      const k    = keys[i];
       const base = k.endsWith(':fx') ? 'https://api-free.deepl.com' : 'https://api.deepl.com';
       const entry = {
         index:     i,
@@ -485,8 +489,8 @@ export function startWeb() {
       } catch (err) {
         entry.error = err.message;
       }
-      return entry;
-    }));
+      results.push(entry);
+    }
 
     res.json({ keys: results });
   });
