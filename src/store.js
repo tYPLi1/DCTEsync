@@ -274,3 +274,13 @@ export const DEFAULT_MEDIA_SYNC = {
     document: true
   }
 };
+
+/**
+ * Default bot-message sync config applied to every new pair.
+ * Bot messages are NOT forwarded by default to avoid noise.
+ * Each direction is independently configurable.
+ */
+export const DEFAULT_BOT_SYNC = {
+  tgToDiscord: false,
+  discordToTg: false
+};

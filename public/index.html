@@ -1145,6 +1145,15 @@ async function saveMediaSync(pairId, partial) {
   }
 }
 
+async function saveBotSync(pairId, partial) {
+  try {
+    await api('PATCH', `/api/pairs/${pairId}/bot-sync`, partial);
+    flashSaved(`media-save-status-${pairId}`);
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 'error');
+  }
+}
+
 function flashSaved(id) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -1238,6 +1247,54 @@ function buildMediaPanel(pair) {
   grid.appendChild(tgCol);
   grid.appendChild(dcCol);
   panel.appendChild(grid);
+
+  // ── Bot messages section ──────────────────────────────────────────────────
+  const botHeading = document.createElement('h3');
+  botHeading.textContent = 'Bot-Nachrichten';
+  botHeading.style.cssText = 'margin-top:20px;margin-bottom:8px';
+  panel.appendChild(botHeading);
+
+  const bs = pair.botSync ?? { tgToDiscord: false, discordToTg: false };
+  const botGrid = document.createElement('div');
+  botGrid.className = 'media-grid';
+
+  const botTgCol = document.createElement('div');
+  botTgCol.className = 'media-section';
+  const botTgTitle = document.createElement('h4');
+  botTgTitle.textContent = '🔵 Telegram → Discord';
+  botTgCol.appendChild(botTgTitle);
+  const botTgRow = document.createElement('div');
+  botTgRow.className = 'toggle-row';
+  const botTgTog = toggle(`bs-tgdc-${pair.id}`, bs.tgToDiscord === true, async (val) => {
+    await saveBotSync(pair.id, { tgToDiscord: val });
+  });
+  const botTgLbl = document.createElement('span');
+  botTgLbl.className = 'toggle-label';
+  botTgLbl.textContent = '🤖 Bot-Nachrichten weiterleiten';
+  botTgRow.appendChild(botTgTog);
+  botTgRow.appendChild(botTgLbl);
+  botTgCol.appendChild(botTgRow);
+
+  const botDcCol = document.createElement('div');
+  botDcCol.className = 'media-section';
+  const botDcTitle = document.createElement('h4');
+  botDcTitle.textContent = '🟣 Discord → Telegram';
+  botDcCol.appendChild(botDcTitle);
+  const botDcRow = document.createElement('div');
+  botDcRow.className = 'toggle-row';
+  const botDcTog = toggle(`bs-dctg-${pair.id}`, bs.discordToTg === true, async (val) => {
+    await saveBotSync(pair.id, { discordToTg: val });
+  });
+  const botDcLbl = document.createElement('span');
+  botDcLbl.className = 'toggle-label';
+  botDcLbl.textContent = '🤖 Bot-Nachrichten weiterleiten';
+  botDcRow.appendChild(botDcTog);
+  botDcRow.appendChild(botDcLbl);
+  botDcCol.appendChild(botDcRow);
+
+  botGrid.appendChild(botTgCol);
+  botGrid.appendChild(botDcCol);
+  panel.appendChild(botGrid);
 
   // Save indicator
   const footer = document.createElement('div');

@@ -119,11 +119,9 @@ export function startTelegram(onMessage, onReaction) {
       return;
     }
 
-    // Ignore messages sent by bots (including the bridge bot itself)
-    if (msg.from?.is_bot) return;
-
     const chatId = String(ctx.chat.id);
     const sender = msg.from ?? null; // null for anonymous channel posts
+    const isBot  = sender?.is_bot === true;
 
     // For channel posts the sender is unknown; use the channel title as name
     const senderName = sender
@@ -140,11 +138,11 @@ export function startTelegram(onMessage, onReaction) {
     // is_topic_message is true for messages inside a forum topic thread
     const topicId = msg.is_topic_message ? (msg.message_thread_id ?? null) : null;
 
-    console.log(`[telegram] ${chatType} msg from chatId=${chatId} sender="${senderName}"${topicId ? ` topicId=${topicId}` : ''}`);
+    console.log(`[telegram] ${chatType} msg from chatId=${chatId} sender="${senderName}"${isBot ? ' [bot]' : ''}${topicId ? ` topicId=${topicId}` : ''}`);
 
     const avatarUrl = sender ? await getAvatarUrl(sender.id) : null;
     const senderId  = sender ? String(sender.id) : null;
-    await onMessage({ chatId, msgId: msg.message_id, senderName, avatarUrl, senderId, text, media, replyToMsgId, topicId });
+    await onMessage({ chatId, msgId: msg.message_id, senderName, senderId, avatarUrl, isBot, text, media, replyToMsgId, topicId });
   };
 
   // ── Reaction handler ───────────────────────────────────────────────────────

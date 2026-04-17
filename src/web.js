@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage } from './store.js';
+import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, DEFAULT_BOT_SYNC, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage } from './store.js';
 import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage, getLibreUsage } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
@@ -191,7 +191,8 @@ export function startWeb() {
       discordChannelId:  String(discordChannelId),
       discordWebhookUrl,
       translation: { ...DEFAULT_TRANSLATION },
-      mediaSync:   JSON.parse(JSON.stringify(DEFAULT_MEDIA_SYNC))
+      mediaSync:   JSON.parse(JSON.stringify(DEFAULT_MEDIA_SYNC)),
+      botSync:     { ...DEFAULT_BOT_SYNC }
     };
 
     addPair(pair);
@@ -303,6 +304,24 @@ export function startWeb() {
     }
 
     console.log(`[web] MediaSync updated: ${req.params.id}`);
+    res.json(merged);
+  });
+
+  // ── PATCH /api/pairs/:id/bot-sync ─────────────────────────────────────────
+  // Toggle forwarding of bot messages per direction.
+  // Body example: { "tgToDiscord": true } or { "discordToTg": false }
+  app.patch('/api/pairs/:id/bot-sync', (req, res) => {
+    const existing = getPairs().find(p => p.id === req.params.id);
+    if (!existing) return res.status(404).json({ error: 'Pair not found.' });
+
+    const base   = existing.botSync ?? { ...DEFAULT_BOT_SYNC };
+    const merged = { ...base, ...req.body };
+
+    if (!updatePair(req.params.id, { botSync: merged })) {
+      return res.status(404).json({ error: 'Pair not found.' });
+    }
+
+    console.log(`[web] BotSync updated: ${req.params.id}`);
     res.json(merged);
   });
 

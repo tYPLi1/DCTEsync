@@ -24,7 +24,7 @@
 import 'dotenv/config';
 import { startTelegram, sendToTelegram, downloadTelegramFile, bot, deleteFromTelegram } from './telegram.js';
 import { startDiscord,  sendToDiscord, reactOnDiscord }                                from './discord.js';
-import { getPairByTelegramId, getPairByDiscordId, getTranslationChain, getTranslationTiers, getPremiumAccess } from './store.js';
+import { getPairByTelegramId, getPairByDiscordId, getTranslationChain, getTranslationTiers, getPremiumAccess, DEFAULT_BOT_SYNC } from './store.js';
 import { maybeTranslate }                                                              from './translation.js';
 import { store, tgToDc, dcToTg, removeByDc }                                          from './messageMap.js';
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
@@ -147,13 +147,19 @@ function resolveTierForUser(pair, { platform, userId, roles = [] }) {
 
 // ── Telegram → Discord ────────────────────────────────────────────────────────
 
-async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderId, text, media, replyToMsgId, topicId }) {
+async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderId, isBot, text, media, replyToMsgId, topicId }) {
   // Track this chat for auto-detect UI
   trackTelegramChat(chatId, senderName);
 
   const pair = getPairByTelegramId(chatId, topicId);
   if (!pair) {
     console.log(`[bridge] TG→DC | no pair for chatId=${chatId}${topicId ? ` topicId=${topicId}` : ''} — message ignored`);
+    return;
+  }
+
+  // Filter bot messages based on per-pair config (default: blocked)
+  if (isBot && !(pair.botSync ?? DEFAULT_BOT_SYNC).tgToDiscord) {
+    console.log(`[bridge] TG→DC | pair=${pair.id} | bot message blocked`);
     return;
   }
 
@@ -232,9 +238,15 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderI
 
 // ── Discord → Telegram ────────────────────────────────────────────────────────
 
-async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, authorId, text, attachments, roles = [], replyToMsgId }) {
+async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, authorId, isBot, text, attachments, roles = [], replyToMsgId }) {
   const pair = getPairByDiscordId(channelId);
   if (!pair) return;
+
+  // Filter bot messages based on per-pair config (default: blocked)
+  if (isBot && !(pair.botSync ?? DEFAULT_BOT_SYNC).discordToTg) {
+    console.log(`[bridge] DC→TG | pair=${pair.id} | bot message blocked`);
+    return;
+  }
 
   // Append any configured display-roles to the sender name
   const displayRoleIds = pair.displayRoles ?? [];
