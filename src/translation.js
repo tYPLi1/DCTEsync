@@ -218,6 +218,8 @@ async function translateDeepL(text, targetLanguage) {
       if (isQuotaError(err)) {
         console.warn(`[translation] DeepL key #${i} quota exhausted, trying next`);
         exhaustedDeepLKeyIndices.add(i);
+      } else if (/DeepL 403:/.test(err.message)) {
+        console.warn(`[translation] DeepL key #${i} auth error, trying next key`);
       } else {
         throw err;
       }
