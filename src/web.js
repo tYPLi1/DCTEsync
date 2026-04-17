@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, DEFAULT_BOT_SYNC, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage } from './store.js';
+import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, DEFAULT_BOT_SYNC, DEFAULT_BOT_WHITELIST, getBotWhitelist, setBotWhitelist, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage } from './store.js';
 import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage, getLibreUsage } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
@@ -308,14 +308,22 @@ export function startWeb() {
   });
 
   // ── PATCH /api/pairs/:id/bot-sync ─────────────────────────────────────────
-  // Toggle forwarding of bot messages per direction.
-  // Body example: { "tgToDiscord": true } or { "discordToTg": false }
+  // Merge bot-sync config for one or both directions.
+  // Body example:
+  //   { "tgToDiscord": { "enabled": true, "useGlobal": false, "whitelist": ["123456"] } }
   app.patch('/api/pairs/:id/bot-sync', (req, res) => {
     const existing = getPairs().find(p => p.id === req.params.id);
     if (!existing) return res.status(404).json({ error: 'Pair not found.' });
 
-    const base   = existing.botSync ?? { ...DEFAULT_BOT_SYNC };
-    const merged = { ...base, ...req.body };
+    const base = existing.botSync ?? JSON.parse(JSON.stringify(DEFAULT_BOT_SYNC));
+    const merged = {
+      tgToDiscord: req.body.tgToDiscord !== undefined
+        ? { ...base.tgToDiscord, ...req.body.tgToDiscord }
+        : base.tgToDiscord,
+      discordToTg: req.body.discordToTg !== undefined
+        ? { ...base.discordToTg, ...req.body.discordToTg }
+        : base.discordToTg
+    };
 
     if (!updatePair(req.params.id, { botSync: merged })) {
       return res.status(404).json({ error: 'Pair not found.' });
@@ -323,6 +331,25 @@ export function startWeb() {
 
     console.log(`[web] BotSync updated: ${req.params.id}`);
     res.json(merged);
+  });
+
+  // ── GET /api/bot-whitelist ─────────────────────────────────────────────────
+  app.get('/api/bot-whitelist', (_req, res) => {
+    res.json(getBotWhitelist());
+  });
+
+  // ── PATCH /api/bot-whitelist ───────────────────────────────────────────────
+  // Replace one or both direction lists.
+  // Body example: { "tgToDiscord": ["123456", "@mybot"] }
+  app.patch('/api/bot-whitelist', (req, res) => {
+    const current = getBotWhitelist();
+    const updated = {
+      tgToDiscord: Array.isArray(req.body.tgToDiscord) ? req.body.tgToDiscord : current.tgToDiscord,
+      discordToTg: Array.isArray(req.body.discordToTg) ? req.body.discordToTg : current.discordToTg
+    };
+    setBotWhitelist(updated);
+    console.log('[web] Global bot-whitelist updated');
+    res.json(updated);
   });
 
   // ── GET /api/microsoft-usage ─────────────────────────────────────────────

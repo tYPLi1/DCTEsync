@@ -276,11 +276,36 @@ export const DEFAULT_MEDIA_SYNC = {
 };
 
 /**
- * Default bot-message sync config applied to every new pair.
- * Bot messages are NOT forwarded by default to avoid noise.
- * Each direction is independently configurable.
+ * Default per-pair bot-message sync config.
+ * Both directions are disabled by default.
+ * useGlobal: true  → use the global bot whitelist
+ * useGlobal: false → use the pair's own whitelist
+ * whitelist: []    → empty = no bots allowed (even when enabled)
  */
 export const DEFAULT_BOT_SYNC = {
-  tgToDiscord: false,
-  discordToTg: false
+  tgToDiscord: { enabled: false, useGlobal: true, whitelist: [] },
+  discordToTg: { enabled: false, useGlobal: true, whitelist: [] }
 };
+
+/**
+ * Default global bot whitelist.
+ * Bot IDs (numeric string) or @usernames accepted for Telegram.
+ * Bot application IDs (snowflake string) or usernames for Discord.
+ */
+export const DEFAULT_BOT_WHITELIST = {
+  tgToDiscord: [],
+  discordToTg: []
+};
+
+export function getBotWhitelist() {
+  return read().botWhitelist ?? JSON.parse(JSON.stringify(DEFAULT_BOT_WHITELIST));
+}
+
+export function setBotWhitelist(wl) {
+  const config = read();
+  config.botWhitelist = {
+    tgToDiscord: Array.isArray(wl.tgToDiscord) ? wl.tgToDiscord : [],
+    discordToTg: Array.isArray(wl.discordToTg) ? wl.discordToTg : []
+  };
+  write(config);
+}

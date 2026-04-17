@@ -24,7 +24,7 @@
 import 'dotenv/config';
 import { startTelegram, sendToTelegram, downloadTelegramFile, bot, deleteFromTelegram } from './telegram.js';
 import { startDiscord,  sendToDiscord, reactOnDiscord }                                from './discord.js';
-import { getPairByTelegramId, getPairByDiscordId, getTranslationChain, getTranslationTiers, getPremiumAccess, DEFAULT_BOT_SYNC } from './store.js';
+import { getPairByTelegramId, getPairByDiscordId, getTranslationChain, getTranslationTiers, getPremiumAccess, DEFAULT_BOT_SYNC, getBotWhitelist } from './store.js';
 import { maybeTranslate }                                                              from './translation.js';
 import { store, tgToDc, dcToTg, removeByDc }                                          from './messageMap.js';
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
@@ -100,6 +100,37 @@ function isDcAllowed(mediaSync, category) {
   return mediaSync?.discordToTg?.[category] !== false;
 }
 
+// ── Bot whitelist resolution ──────────────────────────────────────────────────
+
+/**
+ * Returns true if a bot message should be forwarded for the given direction.
+ * Checks the per-pair config first; falls back to the global whitelist when
+ * useGlobal is true (the default).  An empty whitelist always blocks all bots.
+ *
+ * @param {string|null} botId       Numeric ID as string (TG) or snowflake (DC)
+ * @param {string|null} botUsername Platform username without @
+ * @param {'tgToDiscord'|'discordToTg'} direction
+ * @param {object} pair
+ */
+function isBotAllowed(botId, botUsername, direction, pair) {
+  const cfg = (pair.botSync ?? DEFAULT_BOT_SYNC)[direction];
+  if (!cfg?.enabled) return false;
+
+  const list = cfg.useGlobal !== false
+    ? (getBotWhitelist()[direction] ?? [])
+    : (cfg.whitelist ?? []);
+
+  if (list.length === 0) return false;
+
+  const id = String(botId ?? '');
+  const un = String(botUsername ?? '').replace(/^@/, '').toLowerCase();
+
+  return list.some(entry => {
+    const e = String(entry).replace(/^@/, '').toLowerCase();
+    return (id && e === id) || (un && e === un);
+  });
+}
+
 // ── Translation tier resolution ───────────────────────────────────────────────
 
 /**
@@ -147,7 +178,7 @@ function resolveTierForUser(pair, { platform, userId, roles = [] }) {
 
 // ── Telegram → Discord ────────────────────────────────────────────────────────
 
-async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderId, isBot, text, media, replyToMsgId, topicId }) {
+async function onTelegramMessage({ chatId, msgId, senderName, senderId, senderUsername, avatarUrl, isBot, text, media, replyToMsgId, topicId }) {
   // Track this chat for auto-detect UI
   trackTelegramChat(chatId, senderName);
 
@@ -157,9 +188,9 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderI
     return;
   }
 
-  // Filter bot messages based on per-pair config (default: blocked)
-  if (isBot && !(pair.botSync ?? DEFAULT_BOT_SYNC).tgToDiscord) {
-    console.log(`[bridge] TG→DC | pair=${pair.id} | bot message blocked`);
+  // Filter bot messages via whitelist (default: all bots blocked)
+  if (isBot && !isBotAllowed(senderId, senderUsername, 'tgToDiscord', pair)) {
+    console.log(`[bridge] TG→DC | pair=${pair.id} | bot "${senderName}" not in whitelist — blocked`);
     return;
   }
 
@@ -238,13 +269,13 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderI
 
 // ── Discord → Telegram ────────────────────────────────────────────────────────
 
-async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, authorId, isBot, text, attachments, roles = [], replyToMsgId }) {
+async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, authorId, authorUsername, isBot, text, attachments, roles = [], replyToMsgId }) {
   const pair = getPairByDiscordId(channelId);
   if (!pair) return;
 
-  // Filter bot messages based on per-pair config (default: blocked)
-  if (isBot && !(pair.botSync ?? DEFAULT_BOT_SYNC).discordToTg) {
-    console.log(`[bridge] DC→TG | pair=${pair.id} | bot message blocked`);
+  // Filter bot messages via whitelist (default: all bots blocked)
+  if (isBot && !isBotAllowed(authorId, authorUsername, 'discordToTg', pair)) {
+    console.log(`[bridge] DC→TG | pair=${pair.id} | bot "${senderName}" not in whitelist — blocked`);
     return;
   }
 

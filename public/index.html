@@ -810,6 +810,27 @@
           <button type="button" class="btn-ghost btn-sm" onclick="saveGlobalTiers()">Speichern</button>
         </div>
       </div>
+
+      <!-- Global bot whitelist -->
+      <hr style="border:none;border-top:1px solid var(--border);margin:24px 0 18px">
+      <div class="settings-section" id="global-bot-whitelist-section">
+        <h3>Globale Bot-Whitelist</h3>
+        <p class="settings-hint">Bots, die hier eingetragen sind, dürfen Nachrichten synchronisieren — sofern die per-Verbindung aktivierte Richtung "Globale Whitelist" verwendet. Eintrag pro Zeile: Bot-ID (Zahl) oder Benutzername (mit oder ohne @).</p>
+        <div class="form-grid" style="margin-bottom:10px">
+          <div class="form-group">
+            <label for="global-wl-tg-to-dc">TG → DC (Telegram-Bots)</label>
+            <textarea id="global-wl-tg-to-dc" rows="4" style="resize:vertical;font-family:monospace;font-size:0.8rem" placeholder="123456789&#10;@my_bot&#10;another_bot"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="global-wl-dc-to-tg">DC → TG (Discord-Bots)</label>
+            <textarea id="global-wl-dc-to-tg" rows="4" style="resize:vertical;font-family:monospace;font-size:0.8rem" placeholder="987654321&#10;@discord_bot"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px">
+          <span id="global-wl-save-status" class="save-status">✓ Gespeichert</span>
+          <button type="button" class="btn-ghost btn-sm" onclick="saveGlobalBotWhitelist()">Speichern</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -1254,46 +1275,91 @@ function buildMediaPanel(pair) {
   botHeading.style.cssText = 'margin-top:20px;margin-bottom:8px';
   panel.appendChild(botHeading);
 
-  const bs = pair.botSync ?? { tgToDiscord: false, discordToTg: false };
+  const DEFAULT_BS = { enabled: false, useGlobal: true, whitelist: [] };
+  const bs = pair.botSync ?? { tgToDiscord: { ...DEFAULT_BS }, discordToTg: { ...DEFAULT_BS } };
+
   const botGrid = document.createElement('div');
   botGrid.className = 'media-grid';
 
-  const botTgCol = document.createElement('div');
-  botTgCol.className = 'media-section';
-  const botTgTitle = document.createElement('h4');
-  botTgTitle.textContent = '🔵 Telegram → Discord';
-  botTgCol.appendChild(botTgTitle);
-  const botTgRow = document.createElement('div');
-  botTgRow.className = 'toggle-row';
-  const botTgTog = toggle(`bs-tgdc-${pair.id}`, bs.tgToDiscord === true, async (val) => {
-    await saveBotSync(pair.id, { tgToDiscord: val });
-  });
-  const botTgLbl = document.createElement('span');
-  botTgLbl.className = 'toggle-label';
-  botTgLbl.textContent = '🤖 Bot-Nachrichten weiterleiten';
-  botTgRow.appendChild(botTgTog);
-  botTgRow.appendChild(botTgLbl);
-  botTgCol.appendChild(botTgRow);
+  for (const { dir, dirKey, icon } of [
+    { dir: 'Telegram → Discord', dirKey: 'tgToDiscord', icon: '🔵' },
+    { dir: 'Discord → Telegram', dirKey: 'discordToTg', icon: '🟣' }
+  ]) {
+    const cfg = bs[dirKey] ?? { ...DEFAULT_BS };
+    const col = document.createElement('div');
+    col.className = 'media-section';
 
-  const botDcCol = document.createElement('div');
-  botDcCol.className = 'media-section';
-  const botDcTitle = document.createElement('h4');
-  botDcTitle.textContent = '🟣 Discord → Telegram';
-  botDcCol.appendChild(botDcTitle);
-  const botDcRow = document.createElement('div');
-  botDcRow.className = 'toggle-row';
-  const botDcTog = toggle(`bs-dctg-${pair.id}`, bs.discordToTg === true, async (val) => {
-    await saveBotSync(pair.id, { discordToTg: val });
-  });
-  const botDcLbl = document.createElement('span');
-  botDcLbl.className = 'toggle-label';
-  botDcLbl.textContent = '🤖 Bot-Nachrichten weiterleiten';
-  botDcRow.appendChild(botDcTog);
-  botDcRow.appendChild(botDcLbl);
-  botDcCol.appendChild(botDcRow);
+    const title = document.createElement('h4');
+    title.textContent = `${icon} ${dir}`;
+    col.appendChild(title);
 
-  botGrid.appendChild(botTgCol);
-  botGrid.appendChild(botDcCol);
+    // Enable toggle
+    const enableRow = document.createElement('div');
+    enableRow.className = 'toggle-row';
+    const enableTog = toggle(`bs-en-${dirKey}-${pair.id}`, cfg.enabled === true, async (val) => {
+      await saveBotSync(pair.id, { [dirKey]: { enabled: val } });
+      wlBlock.style.display = val ? '' : 'none';
+    });
+    const enableLbl = document.createElement('span');
+    enableLbl.className = 'toggle-label';
+    enableLbl.textContent = '🤖 Bot-Nachrichten weiterleiten';
+    enableRow.appendChild(enableTog);
+    enableRow.appendChild(enableLbl);
+    col.appendChild(enableRow);
+
+    // Whitelist block (hidden when disabled)
+    const wlBlock = document.createElement('div');
+    wlBlock.style.cssText = `margin-top:8px;display:${cfg.enabled ? '' : 'none'}`;
+
+    // useGlobal toggle
+    const useGlobalRow = document.createElement('div');
+    useGlobalRow.className = 'toggle-row';
+    useGlobalRow.style.marginBottom = '6px';
+    const useGlobalTog = toggle(`bs-ug-${dirKey}-${pair.id}`, cfg.useGlobal !== false, async (val) => {
+      await saveBotSync(pair.id, { [dirKey]: { useGlobal: val } });
+      ownBlock.style.display = val ? 'none' : '';
+      globalNote.style.display = val ? '' : 'none';
+    });
+    const useGlobalLbl = document.createElement('span');
+    useGlobalLbl.className = 'toggle-label';
+    useGlobalLbl.textContent = 'Globale Whitelist verwenden';
+    useGlobalRow.appendChild(useGlobalTog);
+    useGlobalRow.appendChild(useGlobalLbl);
+    wlBlock.appendChild(useGlobalRow);
+
+    // Note when using global
+    const globalNote = document.createElement('p');
+    globalNote.style.cssText = 'font-size:12px;color:var(--text-muted,#888);margin:0 0 6px 0';
+    globalNote.textContent = 'Whitelist wird in den globalen Einstellungen verwaltet.';
+    globalNote.style.display = cfg.useGlobal !== false ? '' : 'none';
+    wlBlock.appendChild(globalNote);
+
+    // Own whitelist textarea
+    const ownBlock = document.createElement('div');
+    ownBlock.style.display = cfg.useGlobal !== false ? 'none' : '';
+    const wlLabel = document.createElement('label');
+    wlLabel.style.cssText = 'font-size:12px;display:block;margin-bottom:4px;color:var(--text-muted,#888)';
+    wlLabel.textContent = 'Bot-IDs / @usernames (eine pro Zeile):';
+    const wlArea = document.createElement('textarea');
+    wlArea.rows = 4;
+    wlArea.style.cssText = 'width:100%;box-sizing:border-box;font-size:12px;resize:vertical';
+    wlArea.value = (cfg.whitelist ?? []).join('\n');
+    const wlSaveBtn = document.createElement('button');
+    wlSaveBtn.textContent = 'Speichern';
+    wlSaveBtn.style.marginTop = '4px';
+    wlSaveBtn.onclick = async () => {
+      const list = wlArea.value.split('\n').map(s => s.trim()).filter(Boolean);
+      await saveBotSync(pair.id, { [dirKey]: { whitelist: list } });
+    };
+    ownBlock.appendChild(wlLabel);
+    ownBlock.appendChild(wlArea);
+    ownBlock.appendChild(wlSaveBtn);
+    wlBlock.appendChild(ownBlock);
+
+    col.appendChild(wlBlock);
+    botGrid.appendChild(col);
+  }
+
   panel.appendChild(botGrid);
 
   // Save indicator
@@ -1895,6 +1961,9 @@ async function loadSettings() {
     // Load translation tiers
     loadTranslationTiers();
 
+    // Load global bot whitelist
+    loadGlobalBotWhitelist();
+
   } catch (err) {
     showToast('Could not load settings: ' + err.message, 'error');
   }
@@ -2280,6 +2349,34 @@ async function saveGlobalTiers() {
     await api('PATCH', '/api/premium-access', { discordRoleIds, telegramUserIds });
     flashSaved('tiers-save-status');
     showToast('Tier-Konfiguration gespeichert.', 'ok');
+  } catch (err) {
+    showToast('Fehler beim Speichern: ' + err.message, 'error');
+  }
+}
+
+// ── Global Bot Whitelist ──────────────────────────────────────────────────────
+
+async function loadGlobalBotWhitelist() {
+  try {
+    const data = await api('GET', '/api/bot-whitelist');
+    const tgEl = document.getElementById('global-wl-tg-to-dc');
+    const dcEl = document.getElementById('global-wl-dc-to-tg');
+    if (tgEl) tgEl.value = (data.tgToDiscord ?? []).join('\n');
+    if (dcEl) dcEl.value = (data.discordToTg ?? []).join('\n');
+  } catch (err) {
+    showToast('Fehler beim Laden der Bot-Whitelist: ' + err.message, 'error');
+  }
+}
+
+async function saveGlobalBotWhitelist() {
+  const tgEl = document.getElementById('global-wl-tg-to-dc');
+  const dcEl = document.getElementById('global-wl-dc-to-tg');
+  const tgToDiscord = (tgEl?.value ?? '').split('\n').map(s => s.trim()).filter(Boolean);
+  const discordToTg = (dcEl?.value ?? '').split('\n').map(s => s.trim()).filter(Boolean);
+  try {
+    await api('PATCH', '/api/bot-whitelist', { tgToDiscord, discordToTg });
+    flashSaved('global-wl-save-status');
+    showToast('Bot-Whitelist gespeichert.', 'ok');
   } catch (err) {
     showToast('Fehler beim Speichern: ' + err.message, 'error');
   }

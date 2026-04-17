@@ -9,11 +9,19 @@ A self-hosted bridge bot that syncs messages between Telegram groups and Discord
 - **Multi-pair sync** — link as many Telegram groups ↔ Discord channels as you want, each pair is independent
 - **Telegram → Discord** — messages appear with the sender's Telegram name and profile picture (via Discord webhook), looks completely native
 - **Discord → Telegram** — messages are forwarded as `[Username]: text` or `[Username]:` + media
+- **Reply threading** — replies in Telegram become native Discord replies (with the correct sender name), and vice versa
 - **Full media support** — photos, videos, audio, voice, documents, stickers, GIFs, video notes, locations, polls
 - **Per-type media toggles** — enable/disable each media type independently per pair and per direction in the dashboard
-- **Loop prevention** — webhook and bot messages are automatically ignored on both sides
-- **Web dashboard** — manage all pairs, translation and media settings at `http://your-host:PORT`
+- **Loop prevention** — the bridge's own webhook messages are always blocked; other bot messages can be allowed selectively via the bot whitelist
+- **Bot message sync** — control whether bot messages are bridged, per direction (TG→DC and DC→TG separately), per pair; optionally use a global bot whitelist
+- **Global + per-pair bot whitelist** — define which bots are allowed to be synced; global list or per-pair custom list
+- **Web dashboard** — manage all pairs, translation, media and bot settings at `http://your-host:PORT`
 - **AI translation** — 7 providers, per pair, per direction, disabled by default
+- **Translation fallback chain** — if the primary provider fails or is exhausted, the next provider in the chain is tried automatically
+- **Translation timeout** — if a provider takes too long, it times out and the fallback chain takes over; original text is forwarded if all providers fail
+- **Two-tier translation** — Premium and Standard tiers with separate providers/chains; assign Discord roles or Telegram user IDs to Premium
+- **LibreTranslate request counter** — tracks API calls made to LibreTranslate with a visual progress bar in the dashboard
+- **Telegram Chat Auto-Detect** — scan recent Telegram chats the bot is in and auto-fill the Chat ID in the add-pair form
 - **Pair validation** — the dashboard verifies bot access to the Telegram group when adding a pair and shows a clear error if something is misconfigured
 - **Docker + LXC ready** — works in Docker, docker-compose, or directly in a Proxmox LXC container
 
@@ -57,9 +65,35 @@ Each type can be toggled on/off **per pair** and **per direction** in the dashbo
 
 ---
 
-## Translation Providers
+## Bot Message Sync
+
+By default only human messages are bridged. You can selectively allow specific bots to have their messages forwarded.
+
+### How it works
+
+Each pair has independent toggles for `TG → Discord` and `Discord → TG`:
+
+- **Enable** — allows bot messages to be forwarded in that direction
+- **Global Whitelist** (default) — only bots listed in the global whitelist are forwarded
+- **Custom Whitelist** — use a per-pair list instead; enter one entry per line (bot ID or username with/without `@`)
+
+> The bridge's own webhook messages are **always blocked** regardless of these settings, so you can never create a loop.
+
+### Global Whitelist
+
+Configure the global lists under **⚙ Settings → Globale Bot-Whitelist**:
+- **TG → DC**: Bot IDs or usernames of Telegram bots allowed to sync to Discord
+- **DC → TG**: Bot IDs or usernames of Discord bots allowed to sync to Telegram
+
+Entries are matched by numeric ID or by username (case-insensitive, `@` prefix optional).
+
+---
+
+## Translation
 
 Translation is **disabled by default**. You can enable it per pair and per direction (TG→DC and DC→TG independently) in the dashboard.
+
+### Providers
 
 | Provider | Type | Needs Key | Self-hosted | Notes |
 |---|---|---|---|---|
@@ -68,7 +102,7 @@ Translation is **disabled by default**. You can enable it per pair and per direc
 | Ollama | Local AI model | — | **Yes** | No external API needed |
 | Google Translate | Translation API | `GOOGLE_TRANSLATE_API_KEY` | No | — |
 | DeepL | Translation API | `DEEPL_API_KEY` (free tier available) | No | Character usage tracked in dashboard |
-| LibreTranslate | Translation API | — (optional) | **Yes** | No external API needed |
+| LibreTranslate | Translation API | — (optional) | **Yes** | No external API needed; request count tracked in dashboard |
 | Microsoft Translator | Translation API | `MICROSOFT_TRANSLATOR_KEY` | No | 2M chars/month free tier, usage tracked & adjustable |
 
 The Anthropic provider uses **prompt caching** — the translation instruction is cached across calls, reducing latency and token costs for repeated translations.
@@ -81,12 +115,23 @@ When a pair has translation enabled, the system tries providers in this order:
 
 When a provider **hits its quota** (e.g., DeepL's character limit or Microsoft's 2M/month), it is automatically marked as exhausted and the next provider in the chain is tried. You can manually reset exhausted providers in the dashboard.
 
+When a provider **times out** (default: 15 seconds, configurable via `TRANSLATION_TIMEOUT_MS`), it is skipped and the fallback chain takes over. If the entire chain fails, the original text is forwarded unchanged.
+
 The special value `none` in the chain means "stop and return original text" — useful if you want translation to be optional.
 
 **Example**: if your pair uses `deepl` and the chain is `[deepl, microsoft, none]`:
 - DeepL runs first
 - If DeepL hits its quota → Microsoft Translator takes over
 - If Microsoft also exhausted → text forwarded without translation
+
+### Two-Tier Translation (Premium / Standard)
+
+You can configure separate translation providers and chains for Premium vs. Standard users:
+
+- **Premium tier** — used for Discord users with specific roles or Telegram users with specific IDs
+- **Standard tier** — used for everyone else
+
+Configure the tiers and Premium access lists in **⚙ Settings → Übersetzungs-Tiers**. Each pair can override the global tier config independently.
 
 ---
 
@@ -186,6 +231,8 @@ It then optionally installs dependencies and sets up a **systemd auto-start serv
    Look for `"chat":{"id": -100xxxxxxxxx}` — that's your `telegramChatId`.
    Supergroup IDs start with `-100`.
 
+   Or use the **🔍 Auto-Detect** button in the dashboard to scan recent chats automatically.
+
 ### Discord Bot
 
 1. Go to [discord.com/developers](https://discord.com/developers/applications) → New Application
@@ -208,6 +255,7 @@ Open `http://your-host:PORT` after starting the bridge.
 
 **Add a pair:**
 - Enter a label (optional), Telegram Chat ID, Discord Channel ID and Discord Webhook URL
+- Use the **🔍** button next to the Chat ID field to auto-detect recent Telegram chats
 - Click **Add Pair**
 - The dashboard calls the Telegram API to confirm the bot can read messages in that group.
   If the bot is not an admin and privacy mode is on, you will see a clear error explaining how to fix it.
@@ -217,13 +265,10 @@ Open `http://your-host:PORT` after starting the bridge.
 - **DC → Telegram**: toggle by category — images, videos, audio, documents
 - All changes save instantly, no restart needed
 
-**Change API keys or tokens** (click **⚙ Settings** in the top-right):
-- Update any token or API key without re-running `setup.sh`
-- Sensitive fields show the current masked value as a placeholder — leave blank to keep it, or type a new value to replace it
-- Changes are written to `.env` immediately and take effect without a service restart
-- **Microsoft Translator**: shows character count and monthly quota. You can manually adjust the counter with the input field and buttons ("Setzen" / "Zurücksetzen") if needed.
-- **DeepL**: shows character usage from DeepL's API
-- **Translation Chain**: configure the fallback order (e.g., `[deepl, microsoft, none]`) — when the primary provider on a pair exhausts its quota, the next in the chain is tried
+**Configure bot message sync per pair** (click **Media** button → Bot-Nachrichten section):
+- Enable TG→DC bot sync and/or DC→TG bot sync independently
+- Choose between global whitelist or a custom per-pair whitelist
+- Enter bot IDs or usernames (one per line) for the custom list
 
 **Configure translation per pair** (click **Translation** button):
 - Toggle the master switch to enable translation for this pair
@@ -231,7 +276,18 @@ Open `http://your-host:PORT` after starting the bridge.
 - Select the target language for each direction
 - Choose the primary AI provider from the dropdown
 - All changes save instantly, no restart needed
-- If the primary provider hits its quota, the fallback chain takes over automatically
+- If the primary provider hits its quota or times out, the fallback chain takes over automatically
+
+**Change API keys or tokens** (click **⚙ Settings** in the top-right):
+- Update any token or API key without re-running `setup.sh`
+- Sensitive fields show the current masked value as a placeholder — leave blank to keep it, or type a new value to replace it
+- Changes are written to `.env` immediately and take effect without a service restart
+- **Microsoft Translator**: shows character count and monthly quota. You can manually adjust the counter with the input field and buttons ("Setzen" / "Zurücksetzen") if needed.
+- **DeepL**: shows character usage from DeepL's API
+- **LibreTranslate**: shows request count with a progress bar
+- **Translation Chain**: configure the fallback order (e.g., `[deepl, microsoft, none]`) — when the primary provider on a pair exhausts its quota, the next in the chain is tried
+- **Übersetzungs-Tiers**: configure Premium/Standard providers and chains; set which Discord roles or Telegram user IDs get Premium tier
+- **Globale Bot-Whitelist**: manage the global list of allowed bots for TG→DC and DC→TG
 
 ---
 
@@ -243,6 +299,7 @@ Open `http://your-host:PORT` after starting the bridge.
 | `DISCORD_TOKEN` | Yes | — | Discord bot token |
 | `PORT` | No | `3000` | Dashboard port (also controls Docker port mapping) |
 | `DATA_FILE` | No | `./data/config.json` | Path to config storage |
+| `TRANSLATION_TIMEOUT_MS` | No | `15000` | Per-provider translation timeout in milliseconds |
 | `ANTHROPIC_API_KEY` | No | — | Claude Haiku translation (with prompt caching) |
 | `OPENAI_API_KEY` | No | — | OpenAI GPT-4o-mini translation |
 | `OLLAMA_BASE_URL` | No | `http://localhost:11434` | Ollama server URL |
@@ -325,12 +382,12 @@ sudo systemctl stop tg-bridge       # stop
 │   ├── discord.js       # Discord.js bot + webhook sender (with file upload)
 │   ├── media.js         # Download helpers, MIME classification, size limits
 │   ├── translation.js   # 7-provider translation module with Anthropic prompt caching
-│   ├── store.js         # JSON config read/write
-│   └── web.js           # Express dashboard + REST API (with Telegram bot validation)
+│   ├── store.js         # JSON config read/write (pairs, bot whitelist, tiers)
+│   └── web.js           # Express dashboard + REST API
 ├── public/
 │   └── index.html       # Dashboard UI (single file, no framework)
 ├── data/
-│   └── config.json      # Auto-generated, stores all pairs
+│   └── config.json      # Auto-generated, stores all pairs and settings
 ├── setup.sh             # Interactive first-run setup
 ├── update.sh            # One-command updater (pull + deps + service restart)
 ├── .env.example         # All available env vars
@@ -347,5 +404,5 @@ sudo systemctl stop tg-bridge       # stop
 - **File size limit**: 20 MB — the Telegram Bot API `getFile` endpoint caps at 20 MB. Files over this limit are replaced with a text notice in both directions.
 - **Media groups / albums**: Each photo in a Telegram album is forwarded as a separate message.
 - **Discord embeds**: Tenor GIFs, YouTube previews and other link embeds are not forwarded (no attachment data available).
-- **Anonymous group admins**: Messages posted anonymously via a linked channel are treated as bot messages and skipped.
+- **Anonymous group admins**: Messages posted anonymously via a linked channel are treated as bot messages and subject to the bot whitelist rules.
 - **Microsoft Translator quota**: Tracked locally (no official Azure quota API). If the counter drifts after a restart, you can manually adjust it in the dashboard. The free tier resets automatically on the 1st of each month (UTC).

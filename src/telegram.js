@@ -140,9 +140,10 @@ export function startTelegram(onMessage, onReaction) {
 
     console.log(`[telegram] ${chatType} msg from chatId=${chatId} sender="${senderName}"${isBot ? ' [bot]' : ''}${topicId ? ` topicId=${topicId}` : ''}`);
 
-    const avatarUrl = sender ? await getAvatarUrl(sender.id) : null;
-    const senderId  = sender ? String(sender.id) : null;
-    await onMessage({ chatId, msgId: msg.message_id, senderName, senderId, avatarUrl, isBot, text, media, replyToMsgId, topicId });
+    const avatarUrl      = sender ? await getAvatarUrl(sender.id) : null;
+    const senderId       = sender ? String(sender.id) : null;
+    const senderUsername = sender?.username ?? null;
+    await onMessage({ chatId, msgId: msg.message_id, senderName, senderId, senderUsername, avatarUrl, isBot, text, media, replyToMsgId, topicId });
   };
 
   // ── Reaction handler ───────────────────────────────────────────────────────
