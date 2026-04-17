@@ -3,8 +3,8 @@ import { readFileSync, writeFileSync, existsSync } from 'fs';
 import { fileURLToPath } from 'url';
 import { dirname, join, resolve } from 'path';
 import { v4 as uuidv4 } from 'uuid';
-import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, DEFAULT_BOT_SYNC, DEFAULT_BOT_WHITELIST, getBotWhitelist, setBotWhitelist, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage } from './store.js';
-import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage, getLibreUsage } from './translation.js';
+import { getPairs, addPair, removePair, updatePair, DEFAULT_TRANSLATION, DEFAULT_MEDIA_SYNC, DEFAULT_BOT_SYNC, DEFAULT_BOT_WHITELIST, getBotWhitelist, setBotWhitelist, getTranslationChain, setTranslationChain, setMicrosoftChars, getTranslationTiers, setTranslationTiers, getPremiumAccess, setPremiumAccess, setLibreUsage, getDeepLKeys, setDeepLKeys } from './store.js';
+import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftUsage, getLibreUsage, getExhaustedDeepLKeyIndices, resetExhaustedDeepLKey, rebuildExhaustedDeepLKeys } from './translation.js';
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
 import { getRecentTelegramChats } from './bridge.js';
@@ -14,7 +14,7 @@ const ENV_PATH = resolve(process.cwd(), '.env');
 const SENSITIVE_KEYS = new Set([
   'TELEGRAM_TOKEN', 'DISCORD_TOKEN',
   'ANTHROPIC_API_KEY', 'OPENAI_API_KEY',
-  'GOOGLE_TRANSLATE_API_KEY', 'DEEPL_API_KEY',
+  'GOOGLE_TRANSLATE_API_KEY',
   'LIBRETRANSLATE_API_KEY', 'MICROSOFT_TRANSLATOR_KEY'
 ]);
 
@@ -393,29 +393,102 @@ export function startWeb() {
     res.json(getLibreUsage());
   });
 
-  // ── GET /api/deepl-usage ─────────────────────────────────────────────────
-  // Proxies the DeepL /v2/usage endpoint so the API key stays server-side.
-  app.get('/api/deepl-usage', async (req, res) => {
-    const key = process.env.DEEPL_API_KEY;
-    if (!key) return res.status(404).json({ error: 'DEEPL_API_KEY not configured.' });
+  // ── GET /api/deepl-keys ──────────────────────────────────────────────────
+  // Returns all registered DeepL keys (values masked) + per-key exhaustion state.
+  app.get('/api/deepl-keys', (req, res) => {
+    const keys      = getDeepLKeys();
+    const exhausted = new Set(getExhaustedDeepLKeyIndices());
+    const masked = keys.map((k, i) => ({
+      index:     i,
+      masked:    k.length > 8 ? k.slice(0, 4) + '****' + k.slice(-4) : '****',
+      isFree:    k.endsWith(':fx'),
+      exhausted: exhausted.has(i)
+    }));
+    res.json({ keys: masked });
+  });
 
-    // Free-tier keys end with ':fx' and use a different subdomain
-    const base = key.endsWith(':fx')
-      ? 'https://api-free.deepl.com'
-      : 'https://api.deepl.com';
-
-    try {
-      const r = await fetch(`${base}/v2/usage`, {
-        headers: { 'Authorization': `DeepL-Auth-Key ${key}` }
-      });
-      if (!r.ok) {
-        const msg = await r.text().catch(() => r.statusText);
-        return res.status(r.status).json({ error: `DeepL ${r.status}: ${msg}` });
-      }
-      res.json(await r.json());
-    } catch (err) {
-      res.status(500).json({ error: err.message });
+  // ── PUT /api/deepl-keys ───────────────────────────────────────────────────
+  // Replace the full list of DeepL keys. Body: { keys: string[] }
+  app.put('/api/deepl-keys', (req, res) => {
+    if (!Array.isArray(req.body.keys)) {
+      return res.status(400).json({ error: 'keys must be an array of strings.' });
     }
+    setDeepLKeys(req.body.keys);
+    console.log(`[web] DeepL keys updated: ${req.body.keys.length} key(s)`);
+    res.json({ ok: true, count: getDeepLKeys().length });
+  });
+
+  // ── POST /api/deepl-keys/add ──────────────────────────────────────────────
+  // Append a single key. Body: { key: string }
+  app.post('/api/deepl-keys/add', (req, res) => {
+    const key = (req.body?.key ?? '').trim();
+    if (!key) return res.status(400).json({ error: 'key is required.' });
+    const current = getDeepLKeys();
+    if (current.length >= 20) return res.status(400).json({ error: 'Maximum of 20 keys reached.' });
+    setDeepLKeys([...current, key]);
+    console.log(`[web] DeepL key added (total: ${getDeepLKeys().length})`);
+    res.json({ ok: true, count: getDeepLKeys().length });
+  });
+
+  // ── DELETE /api/deepl-keys/:index ────────────────────────────────────────
+  app.delete('/api/deepl-keys/:index', (req, res) => {
+    const idx = Number(req.params.index);
+    const current = getDeepLKeys();
+    if (idx < 0 || idx >= current.length) return res.status(404).json({ error: 'Key index out of range.' });
+    setDeepLKeys(current.filter((_, i) => i !== idx));
+    // Shift exhaustion indices: remove idx, decrement all indices > idx
+    const shifted = getExhaustedDeepLKeyIndices()
+      .filter(i => i !== idx)
+      .map(i => i > idx ? i - 1 : i);
+    rebuildExhaustedDeepLKeys(shifted);
+    console.log(`[web] DeepL key #${idx} removed (total: ${getDeepLKeys().length})`);
+    res.json({ ok: true, count: getDeepLKeys().length });
+  });
+
+  // ── POST /api/deepl-keys/reset-exhausted ─────────────────────────────────
+  // Reset exhaustion for one key (body: { index: number }) or all (no index).
+  app.post('/api/deepl-keys/reset-exhausted', (req, res) => {
+    const index = req.body?.index ?? null;
+    resetExhaustedDeepLKey(index == null ? null : Number(index));
+    res.json({ ok: true });
+  });
+
+  // ── GET /api/deepl-usage ─────────────────────────────────────────────────
+  // Proxies DeepL /v2/usage for every registered key in parallel.
+  // Returns { keys: [{ index, masked, isFree, exhausted, usage?: {...}, error?: string }] }
+  app.get('/api/deepl-usage', async (req, res) => {
+    const keys      = getDeepLKeys();
+    if (!keys.length) return res.status(404).json({ error: 'No DeepL keys configured.' });
+    const exhausted = new Set(getExhaustedDeepLKeyIndices());
+
+    const results = await Promise.all(keys.map(async (k, i) => {
+      const base = k.endsWith(':fx') ? 'https://api-free.deepl.com' : 'https://api.deepl.com';
+      const entry = {
+        index:     i,
+        masked:    k.length > 8 ? k.slice(0, 4) + '****' + k.slice(-4) : '****',
+        isFree:    k.endsWith(':fx'),
+        exhausted: exhausted.has(i)
+      };
+      try {
+        const r = await fetch(`${base}/v2/usage`, { headers: { Authorization: `DeepL-Auth-Key ${k}` } });
+        if (!r.ok) {
+          entry.error = `${r.status}`;
+        } else {
+          const d = await r.json();
+          entry.usage = { character_count: d.character_count, character_limit: d.character_limit };
+          // Auto-clear exhaustion if DeepL says quota is not yet exceeded
+          if (exhausted.has(i) && d.character_count < d.character_limit) {
+            resetExhaustedDeepLKey(i);
+            entry.exhausted = false;
+          }
+        }
+      } catch (err) {
+        entry.error = err.message;
+      }
+      return entry;
+    }));
+
+    res.json({ keys: results });
   });
 
   // ── GET /api/pairs/:id/discord-roles ─────────────────────────────────────

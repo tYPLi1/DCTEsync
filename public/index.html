@@ -687,19 +687,16 @@
                 <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-google',this)">🔒</button>
               </div>
             </div>
-            <div class="form-group">
-              <label for="s-deepl">DeepL API Key</label>
-              <div class="token-field">
-                <input type="password" id="s-deepl" name="DEEPL_API_KEY" autocomplete="off" disabled />
-                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-deepl',this)">🔒</button>
+            <div class="form-group wide" id="deepl-keys-section">
+              <label>DeepL API Keys <span style="font-weight:400;color:var(--muted)">(max. 20 · kostenlose Keys enden auf :fx)</span></label>
+              <div id="deepl-keys-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input type="password" id="deepl-new-key" placeholder="Neuen API-Key einfügen…"
+                  style="flex:1;min-width:200px;font-family:monospace;font-size:0.8rem" autocomplete="off" />
+                <button type="button" class="btn-ghost btn-sm" onclick="addDeepLKey()">+ Hinzufügen</button>
+                <button type="button" class="btn-ghost btn-sm" onclick="loadDeepLUsage()" title="Verbrauch aktualisieren">↻ Aktualisieren</button>
               </div>
-              <div id="deepl-usage" class="usage-wrap" style="display:none">
-                <div class="usage-bar"><div class="usage-bar-fill" id="deepl-usage-fill" style="width:0%"></div></div>
-                <span class="usage-text">
-                  <span id="deepl-usage-text"></span>
-                  <span class="usage-note"> · Daten bis einschl. gestriger UTC-Tag</span>
-                </span>
-              </div>
+              <p class="settings-hint" style="margin-top:6px">Wenn ein Key erschöpft ist, wird automatisch der nächste verwendet. Der Verbrauch wird direkt von DeepL abgefragt — nach dem Monatsreset zeigt er automatisch den neuen Stand.</p>
             </div>
             <div class="form-group">
               <label for="s-libre-url">LibreTranslate URL</label>
@@ -1763,7 +1760,7 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
 
 const SENSITIVE_FIELDS = [
   'TELEGRAM_TOKEN','DISCORD_TOKEN','ANTHROPIC_API_KEY',
-  'OPENAI_API_KEY','GOOGLE_TRANSLATE_API_KEY','DEEPL_API_KEY',
+  'OPENAI_API_KEY','GOOGLE_TRANSLATE_API_KEY',
   'LIBRETRANSLATE_API_KEY','MICROSOFT_TRANSLATOR_KEY'
 ];
 
@@ -1891,24 +1888,120 @@ async function loadLibreUsage() {
   }
 }
 
+// In-memory copy of current DeepL keys (masked) for the UI
+let _deeplKeys = [];
+
+function renderDeepLKeys() {
+  const list = document.getElementById('deepl-keys-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!_deeplKeys.length) {
+    list.innerHTML = '<span style="font-size:0.8rem;color:var(--muted)">Noch keine Keys eingetragen.</span>';
+    return;
+  }
+  const fmt = n => n?.toLocaleString('de-DE') ?? '–';
+  for (const k of _deeplKeys) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface)';
+
+    // Header row: index badge + masked key + type badge + exhausted badge + buttons
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+    head.innerHTML = `
+      <span style="font-size:0.7rem;font-weight:700;background:var(--surface2);border-radius:4px;padding:1px 6px">Key #${k.index}</span>
+      <code style="font-size:0.78rem;color:var(--text)">${k.masked}</code>
+      <span style="font-size:0.7rem;color:var(--muted)">${k.isFree ? 'Free' : 'Pro'}</span>
+      ${k.exhausted ? '<span style="font-size:0.7rem;font-weight:700;color:var(--danger)">ERSCHÖPFT</span>' : ''}
+    `;
+    const btnWrap = document.createElement('div');
+    btnWrap.style.cssText = 'margin-left:auto;display:flex;gap:6px';
+    if (k.exhausted) {
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'btn-ghost btn-sm';
+      resetBtn.textContent = 'Reset';
+      resetBtn.onclick = () => resetDeepLKey(k.index);
+      btnWrap.appendChild(resetBtn);
+    }
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-ghost btn-sm';
+    delBtn.style.color = 'var(--danger)';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Key entfernen';
+    delBtn.onclick = () => removeDeepLKey(k.index);
+    btnWrap.appendChild(delBtn);
+    head.appendChild(btnWrap);
+    row.appendChild(head);
+
+    // Usage bar (if available)
+    if (k.usage) {
+      const { character_count: used, character_limit: limit } = k.usage;
+      const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+      const bar = document.createElement('div');
+      bar.innerHTML = `
+        <div class="usage-bar" style="margin-bottom:2px"><div class="usage-bar-fill ${pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : ''}" style="width:${pct.toFixed(1)}%"></div></div>
+        <span class="usage-text" style="font-size:0.72rem">${fmt(used)} / ${fmt(limit)} Zeichen (${pct.toFixed(1)}%) · Live von DeepL</span>
+      `;
+      row.appendChild(bar);
+    } else if (k.error) {
+      const err = document.createElement('span');
+      err.style.cssText = 'font-size:0.72rem;color:var(--danger)';
+      err.textContent = `Fehler: ${k.error}`;
+      row.appendChild(err);
+    }
+
+    list.appendChild(row);
+  }
+}
+
 async function loadDeepLUsage() {
-  const wrap = document.getElementById('deepl-usage');
-  const fill = document.getElementById('deepl-usage-fill');
-  const text = document.getElementById('deepl-usage-text');
-  if (!wrap || !fill || !text) return;
   try {
     const d = await api('GET', '/api/deepl-usage');
-    const pct = d.character_limit > 0
-      ? Math.min(100, (d.character_count / d.character_limit) * 100)
-      : 0;
-    fill.style.width = pct.toFixed(1) + '%';
-    fill.className = 'usage-bar-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
-    const fmt = n => n.toLocaleString('de-DE');
-    text.textContent =
-      `${fmt(d.character_count)} / ${fmt(d.character_limit)} Zeichen (${pct.toFixed(1)}%)`;
-    wrap.style.display = 'flex';
+    _deeplKeys = d.keys ?? [];
+    renderDeepLKeys();
   } catch {
-    wrap.style.display = 'none';
+    // Endpoint returns 404 if no keys configured — just render empty
+    _deeplKeys = [];
+    renderDeepLKeys();
+  }
+}
+
+async function addDeepLKey() {
+  const input = document.getElementById('deepl-new-key');
+  const key = input?.value?.trim();
+  if (!key) { showToast('Bitte einen API-Key eingeben.', 'error'); return; }
+  // Collect current raw keys — we only have masked versions, so we fetch the real list indirectly via PUT
+  // Strategy: PUT sends the current masked list + new key. But masked keys can't be re-sent.
+  // Instead we store the count and send { keys: [...existingKeys, newKey] } — but we don't have existing keys client-side.
+  // Solution: use a dedicated POST /api/deepl-keys/add endpoint — or just PUT with the full list from a separate GET.
+  // Since we only mask on display, we need a way to append. Use PATCH-style: POST /api/deepl-keys/add.
+  try {
+    await api('POST', '/api/deepl-keys/add', { key });
+    input.value = '';
+    await loadDeepLUsage();
+    showToast('DeepL Key hinzugefügt.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+}
+
+async function removeDeepLKey(index) {
+  if (!confirm(`Key #${index} wirklich entfernen?`)) return;
+  try {
+    await api('DELETE', `/api/deepl-keys/${index}`);
+    await loadDeepLUsage();
+    showToast('Key entfernt.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+}
+
+async function resetDeepLKey(index) {
+  try {
+    await api('POST', '/api/deepl-keys/reset-exhausted', index != null ? { index } : {});
+    await loadDeepLUsage();
+    showToast('Erschöpfungsstatus zurückgesetzt.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
   }
 }
 
@@ -1943,9 +2036,8 @@ async function loadSettings() {
         el.value = cfg[el.name];
       }
     }
-    // Load DeepL usage whenever a key is configured
-    if (cfg['DEEPL_API_KEY']) loadDeepLUsage();
-    else { const w = document.getElementById('deepl-usage'); if (w) w.style.display = 'none'; }
+    // Load DeepL multi-key list + usage
+    loadDeepLUsage();
 
     // Load Microsoft usage whenever a key is configured
     if (cfg['MICROSOFT_TRANSLATOR_KEY']) loadMicrosoftUsage();

@@ -94,6 +94,25 @@ export function removePair(id) {
   return config.pairs.length < before;
 }
 
+// ── DeepL multi-key management ───────────────────────────────────────────────
+// Keys are stored in config.json (up to 20). Backward compat: if no keys are
+// stored yet and DEEPL_API_KEY is set in .env, that key is used as the sole key.
+
+export function getDeepLKeys() {
+  const keys = read().deeplKeys;
+  if (Array.isArray(keys) && keys.length > 0) return keys;
+  return process.env.DEEPL_API_KEY ? [process.env.DEEPL_API_KEY] : [];
+}
+
+export function setDeepLKeys(keys) {
+  const config = read();
+  config.deeplKeys = keys
+    .filter(k => typeof k === 'string' && k.trim())
+    .map(k => k.trim())
+    .slice(0, 20);
+  write(config);
+}
+
 // ── Translation fallback chain ────────────────────────────────────────────────
 
 /**

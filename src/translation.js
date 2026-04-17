@@ -17,7 +17,7 @@
 
 import Anthropic from '@anthropic-ai/sdk';
 import fetch from 'node-fetch';
-import { addMicrosoftChars, getMicrosoftUsage, addLibreUsage, getLibreUsage } from './store.js';
+import { addMicrosoftChars, getMicrosoftUsage, addLibreUsage, getLibreUsage, getDeepLKeys } from './store.js';
 
 // ── Language code map ─────────────────────────────────────────────────────────
 // Maps human-readable language names → ISO codes used by translation APIs.
@@ -160,31 +160,71 @@ async function translateGoogle(text, targetLanguage) {
 }
 
 // ── DeepL ─────────────────────────────────────────────────────────────────────
+// Per-key exhaustion tracking (index into the keys array from getDeepLKeys()).
+// Keys are marked exhausted when they return HTTP 456 (quota exceeded).
+// Since DeepL's quota resets on the 1st of each month, the UI also provides a
+// manual reset; the /api/deepl-usage endpoint reflects live DeepL counters so
+// users can see when a key has recovered.
+
+const exhaustedDeepLKeyIndices = new Set();
+
+export function getExhaustedDeepLKeyIndices() {
+  return [...exhaustedDeepLKeyIndices];
+}
+
+export function resetExhaustedDeepLKey(index) {
+  if (index == null) {
+    exhaustedDeepLKeyIndices.clear();
+    console.log('[translation] DeepL: all key exhaustions cleared');
+  } else {
+    exhaustedDeepLKeyIndices.delete(Number(index));
+    console.log(`[translation] DeepL: key #${index} exhaustion cleared`);
+  }
+}
+
+export function rebuildExhaustedDeepLKeys(indices) {
+  exhaustedDeepLKeyIndices.clear();
+  for (const i of indices) exhaustedDeepLKeyIndices.add(Number(i));
+}
+
+async function callDeepLKey(apiKey, text, targetCode) {
+  const base = apiKey.endsWith(':fx')
+    ? 'https://api-free.deepl.com'
+    : 'https://api.deepl.com';
+  const res = await fetch(`${base}/v2/translate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `DeepL-Auth-Key ${apiKey}` },
+    body: JSON.stringify({ text: [text], target_lang: targetCode })
+  });
+  if (!res.ok) throw new Error(`DeepL ${res.status}: ${await res.text()}`);
+  const data = await res.json();
+  return data.translations?.[0]?.text ?? null;
+}
 
 async function translateDeepL(text, targetLanguage) {
-  const apiKey = process.env.DEEPL_API_KEY;
-  if (!apiKey) throw new Error('DEEPL_API_KEY not set');
+  const keys = getDeepLKeys();
+  if (!keys.length) throw new Error('No DeepL API keys configured');
 
   const targetCode = getLangCode(targetLanguage, 'deepl');
   if (!targetCode) throw new Error(`DeepL does not support language: ${targetLanguage}`);
 
-  // Free keys end with ':fx', Pro keys use the regular endpoint
-  const base = apiKey.endsWith(':fx')
-    ? 'https://api-free.deepl.com'
-    : 'https://api.deepl.com';
-
-  const res = await fetch(`${base}/v2/translate`, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `DeepL-Auth-Key ${apiKey}`
-    },
-    body: JSON.stringify({ text: [text], target_lang: targetCode })
-  });
-
-  if (!res.ok) throw new Error(`DeepL ${res.status}: ${await res.text()}`);
-  const data = await res.json();
-  return data.translations?.[0]?.text ?? null;
+  let lastErr;
+  for (let i = 0; i < keys.length; i++) {
+    if (exhaustedDeepLKeyIndices.has(i)) continue;
+    try {
+      return await callDeepLKey(keys[i], text, targetCode);
+    } catch (err) {
+      lastErr = err;
+      if (isQuotaError(err)) {
+        console.warn(`[translation] DeepL key #${i} quota exhausted, trying next`);
+        exhaustedDeepLKeyIndices.add(i);
+      } else {
+        throw err;
+      }
+    }
+  }
+  // All keys exhausted — throw a quota error so the global chain fallback activates
+  throw lastErr ?? new Error('DeepL 456: all keys exhausted');
 }
 
 // ── LibreTranslate (self-hosted or public) ────────────────────────────────────
@@ -404,7 +444,7 @@ export function getProviderStatus() {
     openai:         !!process.env.OPENAI_API_KEY,
     ollama:         true, // always potentially available, no key needed
     google:         !!process.env.GOOGLE_TRANSLATE_API_KEY,
-    deepl:          !!process.env.DEEPL_API_KEY,
+    deepl:          getDeepLKeys().length > 0,
     libretranslate: true, // always potentially available, no key needed
     microsoft:      !!process.env.MICROSOFT_TRANSLATOR_KEY
   };
