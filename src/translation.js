@@ -340,6 +340,42 @@ function isQuotaError(err) {
   );
 }
 
+// ── Pre-translation filtering ────────────────────────────────────────────────
+// Strip URLs and emoji from text before translation, then restore them after.
+// This saves tokens and prevents translators from mangling links.
+
+const URL_RE = /https?:\/\/[^\s)>\]]+/g;
+const EMOJI_RE = /(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F))*/gu;
+
+function stripUntranslatables(text) {
+  const placeholders = [];
+  let idx = 0;
+
+  const cleaned = text
+    .replace(URL_RE, (match) => {
+      const ph = `__PH${idx++}__`;
+      placeholders.push({ ph, original: match });
+      return ph;
+    })
+    .replace(EMOJI_RE, (match) => {
+      const ph = `__PH${idx++}__`;
+      placeholders.push({ ph, original: match });
+      return ph;
+    });
+
+  return {
+    cleaned,
+    skipped: placeholders.length,
+    restore(translated) {
+      let result = translated;
+      for (const { ph, original } of placeholders) {
+        result = result.replace(ph, original);
+      }
+      return result;
+    }
+  };
+}
+
 // ── Internal: single provider, throws on any error ───────────────────────────
 
 // Per-call timeout in ms. If the provider does not respond within this window
@@ -353,6 +389,11 @@ async function translateProvider(text, targetLanguage, provider) {
   const fn = PROVIDERS[provider];
   if (!fn) throw new Error(`Unknown provider: ${provider}`);
 
+  const { cleaned, restore } = stripUntranslatables(text);
+
+  // Nothing left to translate (text was only links/emoji)
+  if (!cleaned.replace(/__PH\d+__/g, '').trim()) return text;
+
   let timeoutId;
   const timeoutPromise = new Promise((_, reject) => {
     timeoutId = setTimeout(
@@ -362,7 +403,8 @@ async function translateProvider(text, targetLanguage, provider) {
   });
 
   try {
-    return (await Promise.race([fn(text, targetLanguage), timeoutPromise])) || text;
+    const translated = (await Promise.race([fn(cleaned, targetLanguage), timeoutPromise])) || cleaned;
+    return restore(translated);
   } finally {
     clearTimeout(timeoutId);
   }
