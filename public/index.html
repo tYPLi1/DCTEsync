@@ -361,6 +361,8 @@
     }
 
     .roles-list { display: flex; flex-wrap: wrap; gap: 8px 16px; }
+    #log-filter { font-size: 0.78rem; padding: 4px 8px; width: 180px; }
+
     .role-color-dot { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; margin-right: 4px; }
 
     @media (max-width: 860px) {
@@ -374,7 +376,7 @@
 <header>
   <div>
     <h1><span class="tg">Telegram</span> ↔ <span class="dc">Discord</span> Sync</h1>
-    <p class="subtitle">Verbindungen, Übersetzung und Logs in einer klaren Oberfläche verwalten.</p>
+    <p class="subtitle">Verbindungen, Übersetzungen und Logs in einer klaren Oberfläche verwalten.</p>
   </div>
   <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;justify-content:flex-end;">
     <div id="status-bar">
@@ -681,8 +683,8 @@
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
       <h2 style="margin-bottom:0">Ereignisprotokoll</h2>
       <div style="display:flex;gap:8px;align-items:center">
-        <label style="font-size:0.75rem;color:var(--muted)">Filter:</label>
-        <input type="text" id="log-filter" placeholder="z.B. ERROR, bridge, TG→DC …" style="font-size:0.78rem;padding:4px 8px;width:180px" />
+        <label for="log-filter" style="font-size:0.75rem;color:var(--muted)">Filter:</label>
+        <input type="text" id="log-filter" placeholder="z.B. ERROR, bridge, TG→DC …" />
         <button type="button" class="btn-ghost btn-sm" onclick="loadLogs()">Aktualisieren</button>
         <button type="button" class="btn-danger btn-sm" onclick="clearLogFile()">Leeren</button>
       </div>
