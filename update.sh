@@ -229,14 +229,14 @@ fi
 
 SERVICE_FILE="/etc/systemd/system/tg-bridge.service"
 
-if [ -f "$SERVICE_FILE" ]; then
+if [[ -f "$SERVICE_FILE" ]]; then
   echo ""
-  echo -e "${BOLD}── Updating systemd service config ──────────${RESET}"
+  echo -e "${BOLD}── Systemd-Service-Konfiguration aktualisieren ──${RESET}"
 
   WORKDIR="$(pwd)"
   NODE_BIN="$(which node)"
 
-  # Write the current canonical service config
+  # Aktuelle kanonische Service-Konfiguration schreiben
   $SUDO tee "$SERVICE_FILE" > /dev/null << SVCEOF
 [Unit]
 Description=Telegram Discord Bridge
@@ -260,7 +260,7 @@ WantedBy=multi-user.target
 SVCEOF
 
   $SUDO systemctl daemon-reload
-  echo -e "${GREEN}✓ Service config updated${RESET}"
+  echo -e "${GREEN}✓ Service-Konfiguration aktualisiert${RESET}"
 fi
 
 # ── Restart service if systemd is set up ─────────────────────────────────────
