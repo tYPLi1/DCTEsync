@@ -882,6 +882,39 @@
       <p>Add your first Telegram ↔ Discord channel pair above.</p>
     </div>
   </div>
+
+  <!-- EVENT LOG -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h2 style="margin-bottom:0">Event-Log</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:0.75rem;color:var(--muted)">Filter:</label>
+        <input type="text" id="log-filter" placeholder="z.B. ERROR, bridge, TG→DC …" style="font-size:0.78rem;padding:4px 8px;width:180px" />
+        <button type="button" class="btn-ghost btn-sm" onclick="loadLogs()">Aktualisieren</button>
+        <button type="button" class="btn-danger btn-sm" onclick="clearLogFile()">Leeren</button>
+      </div>
+    </div>
+    <div id="log-container" style="
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: var(--muted);
+    ">Lade Logs…</div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px">
+      <span style="font-size:0.72rem;color:var(--muted)">Letzte 200 Zeilen · Log-Datei: data/bridge.log</span>
+      <label style="font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="log-auto-scroll" checked style="margin:0" /> Auto-Scroll
+      </label>
+    </div>
+  </div>
 </main>
 
 <div id="toast"></div>
@@ -2724,6 +2757,60 @@ async function loadPremiumRoles(pairId, currentOverrideRoleIds) {
 loadPairs();
 refreshStatus();
 setInterval(refreshStatus, 30_000);
+loadLogs();
+setInterval(loadLogs, 15_000);
+
+// ── Event Log ─────────────────────────────────────────────────────────────────
+
+const LOG_COLORS = {
+  ERROR: 'var(--danger)',
+  WARN:  'var(--warn)',
+  INFO:  'var(--muted)',
+};
+
+async function loadLogs() {
+  const container = document.getElementById('log-container');
+  if (!container) return;
+  try {
+    const data = await api('GET', '/api/logs?lines=200');
+    const filter = (document.getElementById('log-filter')?.value || '').toLowerCase();
+    const lines = filter
+      ? data.lines.filter(l => l.toLowerCase().includes(filter))
+      : data.lines;
+
+    container.innerHTML = '';
+    if (!lines.length) {
+      container.textContent = filter ? 'Keine Treffer.' : 'Keine Logs vorhanden.';
+      return;
+    }
+    for (const line of lines) {
+      const span = document.createElement('span');
+      span.style.display = 'block';
+      if (line.includes('[ERROR]')) span.style.color = LOG_COLORS.ERROR;
+      else if (line.includes('[WARN]')) span.style.color = LOG_COLORS.WARN;
+      span.textContent = line;
+      container.appendChild(span);
+    }
+    if (document.getElementById('log-auto-scroll')?.checked) {
+      container.scrollTop = container.scrollHeight;
+    }
+  } catch (err) {
+    container.textContent = 'Fehler beim Laden: ' + err.message;
+  }
+}
+
+async function clearLogFile() {
+  if (!confirm('Log-Datei leeren?')) return;
+  try {
+    await api('DELETE', '/api/logs');
+    loadLogs();
+    showToast('Log geleert.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+}
+
+document.getElementById('log-filter')?.addEventListener('input', () => loadLogs());
 
 // ── Auto-Detect Telegram Chats ────────────────────────────────────────────────
 

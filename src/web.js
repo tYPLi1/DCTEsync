@@ -8,6 +8,7 @@ import { getProviderStatus, getExhaustedProviders, resetExhausted, getMicrosoftU
 import { bot } from './telegram.js';
 import { getGuildRoles } from './discord.js';
 import { getRecentTelegramChats } from './bridge.js';
+import { readLogs, clearLogs } from './logger.js';
 
 const ENV_PATH = resolve(process.cwd(), '.env');
 
@@ -781,6 +782,20 @@ export function startWeb() {
     res.json({
       chats: getRecentTelegramChats()
     });
+  });
+
+  // ── GET /api/logs ─────────────────────────────────────────────────────────
+  // Returns the last N lines from the persistent log file.
+  app.get('/api/logs', (req, res) => {
+    const lines = Math.min(parseInt(req.query.lines || '200', 10), 2000);
+    res.json({ lines: readLogs(lines) });
+  });
+
+  // ── DELETE /api/logs ────────────────────────────────────────────────────────
+  app.delete('/api/logs', (_req, res) => {
+    clearLogs();
+    console.log('[web] Log file cleared');
+    res.json({ ok: true });
   });
 
   app.listen(PORT, () => {

@@ -22,6 +22,7 @@
  */
 
 import 'dotenv/config';
+import './logger.js';
 import { startTelegram, sendToTelegram, downloadTelegramFile, bot, deleteFromTelegram } from './telegram.js';
 import { startDiscord,  sendToDiscord, reactOnDiscord }                                from './discord.js';
 import { getPairByTelegramId, getPairByDiscordId, getPairs, getTranslationChain, getTranslationTiers, getPremiumAccess, DEFAULT_BOT_SYNC, getBotWhitelist, loadAllMsgMaps, saveMsgMap, deleteMsgMap } from './store.js';
