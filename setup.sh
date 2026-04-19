@@ -8,6 +8,9 @@ YELLOW='\033[1;33m'
 RED='\033[0;31m'
 RESET='\033[0m'
 
+# Git-Credential-Prompts deaktivieren – schlägt still fehl statt zu blocken
+export GIT_TERMINAL_PROMPT=0
+
 ask() {
   local prompt="$1"
   local default="$2"
@@ -59,6 +62,77 @@ echo -e "${BOLD}╔════════════════════�
 echo -e "${BOLD}║   Telegram ↔ Discord Bridge  –  Setup   ║${RESET}"
 echo -e "${BOLD}╚══════════════════════════════════════════╝${RESET}"
 echo ""
+
+# ── Muss im Repo ausgeführt werden ───────────────────────────────────────────
+
+if [[ ! -d .git ]]; then
+  echo -e "${RED}✗ Kein git-Repository gefunden.${RESET}"
+  echo -e "  Bitte dieses Skript im Bridge-Verzeichnis ausführen."
+  exit 1
+fi
+
+# ── GitHub-Authentifizierung einrichten (nur wenn nötig) ─────────────────────
+
+REMOTE_URL="$(git remote get-url origin 2>/dev/null || true)"
+
+if [[ "$REMOTE_URL" == https://* ]]; then
+  if ! git ls-remote origin HEAD &>/dev/null; then
+    echo -e "${YELLOW}⚠ GitHub-Authentifizierung fehlt oder Token abgelaufen.${RESET}"
+    echo ""
+    echo -e "  ${BOLD}Einmalig einrichten — danach nie wieder eingeben:${RESET}"
+    echo ""
+    echo -e "  ${CYAN}1${RESET}) GitHub Personal Access Token (einfach, empfohlen)"
+    echo -e "  ${CYAN}2${RESET}) SSH-Key (sicherer, einmalige Einrichtung)"
+    echo ""
+    printf "  Wahl [1]: "
+    read -r AUTH_CHOICE
+    AUTH_CHOICE="${AUTH_CHOICE:-1}"
+
+    if [[ "$AUTH_CHOICE" == "2" ]]; then
+      echo ""
+      echo -e "  ${BOLD}SSH-Key einrichten (einmalig):${RESET}"
+      echo -e "  ${CYAN}1.${RESET} Key erstellen:   ${CYAN}ssh-keygen -t ed25519${RESET}"
+      echo -e "  ${CYAN}2.${RESET} Key anzeigen:    ${CYAN}cat ~/.ssh/id_ed25519.pub${RESET}"
+      echo -e "  ${CYAN}3.${RESET} Key zu GitHub hinzufügen:  github.com → Settings → SSH Keys"
+      echo -e "  ${CYAN}4.${RESET} Remote umstellen: ${CYAN}git remote set-url origin git@github.com:tYPLi1/DCTEsync.git${RESET}"
+      echo ""
+      echo -e "  Dann Setup erneut starten."
+      exit 0
+    else
+      echo ""
+      echo -e "  Personal Access Token erstellen:"
+      echo -e "  github.com → Settings → Developer settings → Personal access tokens → Fine-grained"
+      echo -e "  Berechtigung: ${CYAN}Contents: Read-only${RESET}"
+      echo ""
+      printf "  GitHub-Benutzername: "
+      read -r GH_USER
+      printf "  GitHub-Token (wird nicht angezeigt): "
+      read -rs GH_TOKEN
+      echo ""
+
+      # Credential-Helper auf dauerhafte Speicherung setzen
+      git config credential.helper store
+
+      AUTH_URL="https://${GH_USER}:${GH_TOKEN}@${REMOTE_URL#https://}"
+      if git ls-remote "$AUTH_URL" HEAD &>/dev/null; then
+        # Vorhandenen Eintrag für diesen Host ersetzen oder neu hinzufügen
+        CRED_HOST="$(echo "$REMOTE_URL" | grep -oP '(?<=https://)([^/]+)')"
+        CRED_LINE="https://${GH_USER}:${GH_TOKEN}@${CRED_HOST}"
+        touch ~/.git-credentials && chmod 600 ~/.git-credentials
+        grep -v "^https://.*@${CRED_HOST}" ~/.git-credentials > /tmp/.git-creds-tmp 2>/dev/null || true
+        echo "$CRED_LINE" >> /tmp/.git-creds-tmp
+        mv /tmp/.git-creds-tmp ~/.git-credentials
+        echo -e "  ${GREEN}✓ Credentials gespeichert in ~/.git-credentials${RESET}"
+        echo -e "  ${GREEN}✓ Ab jetzt kein Login mehr nötig.${RESET}"
+        echo ""
+      else
+        echo -e "  ${RED}✗ Authentifizierung fehlgeschlagen.${RESET}"
+        echo -e "  Benutzername oder Token falsch — bitte prüfen."
+        exit 1
+      fi
+    fi
+  fi
+fi
 
 # ── Tokens ───────────────────────────────────────────────────────────────────
 
