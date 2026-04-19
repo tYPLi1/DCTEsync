@@ -63,10 +63,16 @@ export function getPairByTelegramId(telegramChatId, topicId = null) {
   }
 
   // 2. Catch-all: same chatId, no topic configured
-  return pairs.find(p =>
+  const catchAll = pairs.find(p =>
     String(p.telegramChatId) === chatStr &&
     !p.telegramTopicId
   ) ?? null;
+
+  // If the message is from a topic but the pair only wants the main channel
+  if (catchAll && topicId != null && catchAll.bridgeAllTopics === false) {
+    return null;
+  }
+  return catchAll;
 }
 
 export function getPairByDiscordId(discordChannelId) {
@@ -249,7 +255,7 @@ export function setPremiumAccess(access) {
  * telegramTopicId: null = bridge the whole group/channel (no topic filtering).
  *                  integer = bridge only this forum topic thread.
  */
-export const DEFAULT_TOPIC = { telegramTopicId: null };
+export const DEFAULT_TOPIC = { telegramTopicId: null, bridgeAllTopics: true };
 
 /**
  * Default translation config applied to every new pair.

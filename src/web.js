@@ -94,7 +94,7 @@ export function startWeb() {
 
   // ── POST /api/pairs ────────────────────────────────────────────────────────
   app.post('/api/pairs', async (req, res) => {
-    const { telegramChatId, discordChannelId, discordWebhookUrl, label, telegramTopicId } = req.body;
+    const { telegramChatId, discordChannelId, discordWebhookUrl, label, telegramTopicId, bridgeAllTopics } = req.body;
 
     if (!telegramChatId || !discordChannelId || !discordWebhookUrl) {
       return res.status(400).json({ error: 'telegramChatId, discordChannelId and discordWebhookUrl are required.' });
@@ -188,6 +188,7 @@ export function startWeb() {
       label: label || '',
       telegramChatId:    resolvedChatId,
       telegramTopicId:   parsedTopicId,
+      bridgeAllTopics:   bridgeAllTopics !== false,
       discordChannelId:  String(discordChannelId),
       discordWebhookUrl,
       translation: { ...DEFAULT_TRANSLATION },
@@ -208,10 +209,11 @@ export function startWeb() {
     const existing = getPairs().find(p => p.id === req.params.id);
     if (!existing) return res.status(404).json({ error: 'Pair not found.' });
 
-    const { label, telegramChatId, discordChannelId, discordWebhookUrl, telegramTopicId } = req.body;
+    const { label, telegramChatId, discordChannelId, discordWebhookUrl, telegramTopicId, bridgeAllTopics } = req.body;
     const updates = {};
 
     if (label !== undefined)  updates.label = String(label);
+    if (bridgeAllTopics !== undefined) updates.bridgeAllTopics = !!bridgeAllTopics;
 
     if (telegramTopicId !== undefined) {
       updates.telegramTopicId = telegramTopicId !== null && telegramTopicId !== ''
