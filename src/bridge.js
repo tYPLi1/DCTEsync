@@ -22,13 +22,43 @@
  */
 
 import 'dotenv/config';
+import './logger.js';
 import { startTelegram, sendToTelegram, downloadTelegramFile, bot, deleteFromTelegram } from './telegram.js';
 import { startDiscord,  sendToDiscord, reactOnDiscord }                                from './discord.js';
-import { getPairByTelegramId, getPairByDiscordId, getTranslationChain, getTranslationTiers, getPremiumAccess } from './store.js';
+import { getPairByTelegramId, getPairByDiscordId, getPairs, getTranslationChain, getTranslationTiers, getPremiumAccess, DEFAULT_BOT_SYNC, getBotWhitelist, loadAllMsgMaps, saveMsgMap, deleteMsgMap } from './store.js';
 import { maybeTranslate }                                                              from './translation.js';
-import { store, tgToDc, dcToTg, removeByDc }                                          from './messageMap.js';
+import { store as mmStore, loadPersisted, getAll, tgToDc, dcToTg, removeByDc }        from './messageMap.js';
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
 import { startWeb }                                                  from './web.js';
+
+// ── Process-level crash & freeze protection ──────────────────────────────────
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception — restarting via systemd:', err.message);
+  console.error(err.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled promise rejection — restarting via systemd:', reason);
+  process.exit(1);
+});
+
+// Event-loop watchdog: if the event loop is blocked for more than 30s the
+// process is considered frozen and exits so systemd can restart it.
+const WATCHDOG_INTERVAL_MS = 10_000;
+const WATCHDOG_MAX_DELAY_MS = 30_000;
+let _lastWatchdogTick = Date.now();
+
+setInterval(() => {
+  const now = Date.now();
+  const drift = now - _lastWatchdogTick - WATCHDOG_INTERVAL_MS;
+  if (drift > WATCHDOG_MAX_DELAY_MS) {
+    console.error(`[FATAL] Event loop frozen for ${Math.round(drift / 1000)}s — restarting via systemd`);
+    process.exit(1);
+  }
+  _lastWatchdogTick = now;
+}, WATCHDOG_INTERVAL_MS).unref();
 
 // ── Safe translation wrapper ──────────────────────────────────────────────────
 // Guarantees a string is always returned even if maybeTranslate throws
@@ -42,6 +72,24 @@ async function safeTranslate(text, translationConfig, direction, chain, provider
     console.error(`[bridge] Translation threw unexpectedly, forwarding original text: ${err.message}`);
     return text;
   }
+}
+
+// ── Message map: store + debounced persistence ────────────────────────────────
+// Wraps messageMap.store() and schedules a disk write 3 s after the last
+// message in each pair.  Burst traffic causes at most one write per 3 s per pair.
+
+const MSG_MAP_DEFAULT_LIMIT = 200;
+const MSG_MAP_MAX_LIMIT     = 200; // hard ceiling regardless of per-pair setting
+const _persistTimers = new Map();
+
+function storeMapping(pair, tgMsgId, dcMsgId) {
+  const limit = Math.min(pair.msgMapLimit ?? MSG_MAP_DEFAULT_LIMIT, MSG_MAP_MAX_LIMIT);
+  mmStore(pair.id, tgMsgId, dcMsgId, limit);
+  clearTimeout(_persistTimers.get(pair.id));
+  _persistTimers.set(pair.id, setTimeout(() => {
+    _persistTimers.delete(pair.id);
+    saveMsgMap(pair.id, getAll(pair.id));
+  }, 3000));
 }
 
 // ── Recent Telegram chats (for auto-detect UI) ────────────────────────────────
@@ -100,6 +148,37 @@ function isDcAllowed(mediaSync, category) {
   return mediaSync?.discordToTg?.[category] !== false;
 }
 
+// ── Bot whitelist resolution ──────────────────────────────────────────────────
+
+/**
+ * Returns true if a bot message should be forwarded for the given direction.
+ * Checks the per-pair config first; falls back to the global whitelist when
+ * useGlobal is true (the default).  An empty whitelist always blocks all bots.
+ *
+ * @param {string|null} botId       Numeric ID as string (TG) or snowflake (DC)
+ * @param {string|null} botUsername Platform username without @
+ * @param {'tgToDiscord'|'discordToTg'} direction
+ * @param {object} pair
+ */
+function isBotAllowed(botId, botUsername, direction, pair) {
+  const cfg = (pair.botSync ?? DEFAULT_BOT_SYNC)[direction];
+  if (!cfg?.enabled) return false;
+
+  const list = cfg.useGlobal !== false
+    ? (getBotWhitelist()[direction] ?? [])
+    : (cfg.whitelist ?? []);
+
+  if (list.length === 0) return false;
+
+  const id = String(botId ?? '');
+  const un = String(botUsername ?? '').replace(/^@/, '').toLowerCase();
+
+  return list.some(entry => {
+    const e = String(entry).replace(/^@/, '').toLowerCase();
+    return (id && e === id) || (un && e === un);
+  });
+}
+
 // ── Translation tier resolution ───────────────────────────────────────────────
 
 /**
@@ -147,13 +226,19 @@ function resolveTierForUser(pair, { platform, userId, roles = [] }) {
 
 // ── Telegram → Discord ────────────────────────────────────────────────────────
 
-async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderId, text, media, replyToMsgId, topicId }) {
+async function onTelegramMessage({ chatId, msgId, senderName, senderId, senderUsername, avatarUrl, isBot, text, media, replyToMsgId, topicId }) {
   // Track this chat for auto-detect UI
   trackTelegramChat(chatId, senderName);
 
   const pair = getPairByTelegramId(chatId, topicId);
   if (!pair) {
     console.log(`[bridge] TG→DC | no pair for chatId=${chatId}${topicId ? ` topicId=${topicId}` : ''} — message ignored`);
+    return;
+  }
+
+  // Filter bot messages via whitelist (default: all bots blocked)
+  if (isBot && !isBotAllowed(senderId, senderUsername, 'tgToDiscord', pair)) {
+    console.log(`[bridge] TG→DC | pair=${pair.id} | bot "${senderName}" not in whitelist — blocked`);
     return;
   }
 
@@ -169,7 +254,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderI
     console.log(`[bridge] TG→DC | pair=${pair.id} | text | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, translated, null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
-    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
+    if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);
     return;
   }
 
@@ -183,7 +268,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderI
   if (media.type === 'sticker_animated') {
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, `[Sticker ${media.emoji}]`, null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
-    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
+    if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);
     return;
   }
 
@@ -191,7 +276,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderI
     const msg = `📍 Location: https://maps.google.com/?q=${media.latitude},${media.longitude}`;
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, msg, null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
-    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
+    if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);
     return;
   }
 
@@ -199,7 +284,7 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderI
     const lines = [`📊 **Poll:** ${media.question}`, ...media.options.map(o => `• ${o}`)];
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, lines.join('\n'), null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
-    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
+    if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);
     return;
   }
 
@@ -226,15 +311,21 @@ async function onTelegramMessage({ chatId, msgId, senderName, avatarUrl, senderI
     const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, caption,
       { buffer, mimeType: media.mimeType, fileName: media.fileName },
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
-    if (msgId && dcMsgId) store(pair.id, msgId, dcMsgId);
+    if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);
   }
 }
 
 // ── Discord → Telegram ────────────────────────────────────────────────────────
 
-async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, authorId, text, attachments, roles = [], replyToMsgId }) {
+async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, authorId, authorUsername, isBot, text, attachments, roles = [], replyToMsgId }) {
   const pair = getPairByDiscordId(channelId);
   if (!pair) return;
+
+  // Filter bot messages via whitelist (default: all bots blocked)
+  if (isBot && !isBotAllowed(authorId, authorUsername, 'discordToTg', pair)) {
+    console.log(`[bridge] DC→TG | pair=${pair.id} | bot "${senderName}" not in whitelist — blocked`);
+    return;
+  }
 
   // Append any configured display-roles to the sender name
   const displayRoleIds = pair.displayRoles ?? [];
@@ -262,7 +353,7 @@ async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, 
     if (translatedText) {
       console.log(`[bridge] DC→TG | pair=${pair.id} | text | from="${displayName}"${tgReplyId ? ' (reply)' : ''}`);
       const tgMsgId = await sendToTelegram(pair.telegramChatId, displayName, translatedText, null, sendOpts);
-      if (msgId && tgMsgId) store(pair.id, tgMsgId, msgId);
+      if (msgId && tgMsgId) storeMapping(pair, tgMsgId, msgId);
     }
     return;
   }
@@ -292,13 +383,13 @@ async function onDiscordMessage({ channelId, msgId, senderName, avatarUrl: _av, 
     const tgMsgId = await sendToTelegram(pair.telegramChatId, displayName, caption,
       { buffer, mimeType: att.contentType || 'application/octet-stream', fileName: att.name },
       sendOpts);
-    if (msgId && tgMsgId) store(pair.id, tgMsgId, msgId);
+    if (msgId && tgMsgId) storeMapping(pair, tgMsgId, msgId);
   }
 
   // All attachments were blocked → still send text if present
   if (!captionUsed && translatedText) {
     const tgMsgId = await sendToTelegram(pair.telegramChatId, displayName, translatedText, null, sendOpts);
-    if (msgId && tgMsgId) store(pair.id, tgMsgId, msgId);
+    if (msgId && tgMsgId) storeMapping(pair, tgMsgId, msgId);
   }
 }
 
@@ -361,6 +452,23 @@ async function onDiscordDelete({ channelId, msgId }) {
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
+
+// Load persisted message maps before starting so reactions/replies on recent
+// pre-restart messages still resolve correctly.
+{
+  const persisted = loadAllMsgMaps();
+  const pairs     = getPairs();
+  let total = 0;
+  for (const pair of pairs) {
+    const entries = persisted[pair.id];
+    if (entries?.length) {
+      const limit = Math.min(pair.msgMapLimit ?? MSG_MAP_DEFAULT_LIMIT, MSG_MAP_MAX_LIMIT);
+      loadPersisted(pair.id, entries, limit);
+      total += entries.length;
+    }
+  }
+  if (total) console.log(`[bridge] Loaded ${total} persisted message mappings`);
+}
 
 console.log('[bridge] Starting Telegram ↔ Discord bridge…');
 startTelegram(onTelegramMessage, onTelegramReaction);

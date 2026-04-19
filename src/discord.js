@@ -31,7 +31,7 @@ export function startDiscord(onMessage, onReaction, onDelete) {
   });
 
   client.on(Events.MessageCreate, message => {
-    if (message.author.bot) return; // ignore bots and webhook messages
+    if (message.webhookId) return;  // ignore our own bridge webhooks (prevents loops)
     if (!message.guild) return;     // ignore DMs — guild messages only
 
     const text        = message.content || null;
@@ -58,11 +58,13 @@ export function startDiscord(onMessage, onReaction, onDelete) {
     const replyToMsgId = message.reference?.messageId ?? null;
 
     onMessage({
-      channelId:   String(message.channel.id),
-      msgId:       String(message.id),
-      senderName:  message.member?.displayName || message.author.username,
-      avatarUrl:   message.author.displayAvatarURL({ size: 128, extension: 'png' }),
-      authorId:    String(message.author.id),
+      channelId:      String(message.channel.id),
+      msgId:          String(message.id),
+      senderName:     message.member?.displayName || message.author.username,
+      avatarUrl:      message.author.displayAvatarURL({ size: 128, extension: 'png' }),
+      authorId:       String(message.author.id),
+      authorUsername: message.author.username,
+      isBot:          message.author.bot,
       text,
       attachments,
       roles,
