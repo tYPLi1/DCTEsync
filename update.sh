@@ -24,7 +24,7 @@ fi
 # ── Determine default branch (remote HEAD) ───────────────────────────────────
 DEFAULT_BRANCH="$(git remote show origin 2>/dev/null | awk '/HEAD branch/ {print $NF}')"
 if [ -z "$DEFAULT_BRANCH" ] || [ "$DEFAULT_BRANCH" = "(unknown)" ]; then
-  DEFAULT_BRANCH="claude/telegram-discord-bridge-bUm5a"
+  DEFAULT_BRANCH="feat-bot-sync"
 fi
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
