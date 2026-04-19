@@ -841,6 +841,14 @@
           <label for="f-wh">Discord Webhook URL</label>
           <input type="text" id="f-wh" placeholder="https://discord.com/api/webhooks/..." required />
         </div>
+        <div class="form-group" style="display:flex;align-items:center;gap:10px;">
+          <label class="toggle">
+            <input type="checkbox" id="f-bridge-all-topics" checked />
+            <span class="slider"></span>
+          </label>
+          <label for="f-bridge-all-topics" style="font-size:0.82rem;color:var(--text);cursor:pointer">Alle Topics bridgen</label>
+          <span style="font-size:0.72rem;color:var(--muted)">(Aus = nur Hauptkanal)</span>
+        </div>
       </div>
       <div style="display:flex;justify-content:flex-end;margin-top:14px;">
         <button type="submit" class="btn-primary">Add Pair</button>
@@ -1306,7 +1314,21 @@ function buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }) {
   const { group: gDc,    input: iDc     } = field(`e-dc-${pair.id}`,     'Discord Channel ID',                  pair.discordChannelId,  '123456789012345678');
   const { group: gWh,    input: iWh     } = field(`e-wh-${pair.id}`,     'Discord Webhook URL',                 pair.discordWebhookUrl, 'https://discord.com/api/webhooks/…', true);
 
-  grid.append(gLabel, gTgNew, gTopic, gDc, gWh);
+  // Bridge All Topics toggle
+  const gBridgeAll = document.createElement('div');
+  gBridgeAll.className = 'form-group';
+  gBridgeAll.style.cssText = 'display:flex;align-items:center;gap:10px';
+  const bridgeAllToggle = toggle(`e-bridge-all-${pair.id}`, pair.bridgeAllTopics !== false, () => {});
+  const bridgeAllLabel = document.createElement('label');
+  bridgeAllLabel.htmlFor = `e-bridge-all-${pair.id}`;
+  bridgeAllLabel.style.cssText = 'font-size:0.82rem;color:var(--text);cursor:pointer';
+  bridgeAllLabel.textContent = 'Alle Topics bridgen';
+  const bridgeAllHint = document.createElement('span');
+  bridgeAllHint.style.cssText = 'font-size:0.72rem;color:var(--muted)';
+  bridgeAllHint.textContent = '(Aus = nur Hauptkanal)';
+  gBridgeAll.append(bridgeAllToggle, bridgeAllLabel, bridgeAllHint);
+
+  grid.append(gLabel, gTgNew, gTopic, gDc, gWh, gBridgeAll);
   panel.appendChild(grid);
 
   const footer = document.createElement('div');
@@ -1330,6 +1352,8 @@ function buildEditPanel(pair, { tgBadge, dcBadge, labelBadge }) {
       const newTopic = iTopic.value.trim() || null;
       const oldTopic = pair.telegramTopicId != null ? String(pair.telegramTopicId) : null;
       if ((newTopic ?? null) !== (oldTopic ?? null))           body.telegramTopicId  = newTopic;
+      const newBridgeAll = bridgeAllToggle.querySelector('input').checked;
+      if (newBridgeAll !== (pair.bridgeAllTopics !== false))   body.bridgeAllTopics  = newBridgeAll;
 
       if (!Object.keys(body).length) {
         showToast('Keine Änderungen.', 'error');
@@ -1619,11 +1643,12 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
   const topicId  = document.getElementById('f-topic').value.trim();
   const dcId     = document.getElementById('f-dc').value.trim();
   const webhook  = document.getElementById('f-wh').value.trim();
+  const bridgeAll = document.getElementById('f-bridge-all-topics').checked;
 
   if (!tgId || !dcId || !webhook) return;
 
   try {
-    const body = { label, telegramChatId: tgId, discordChannelId: dcId, discordWebhookUrl: webhook };
+    const body = { label, telegramChatId: tgId, discordChannelId: dcId, discordWebhookUrl: webhook, bridgeAllTopics: bridgeAll };
     if (topicId) body.telegramTopicId = topicId;
     const pair = await api('POST', '/api/pairs', body);
     document.getElementById('pairs-list').prepend(renderPair(pair));
