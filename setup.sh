@@ -269,13 +269,17 @@ if confirm "Set up systemd auto-start service? (requires root)"; then
   $SUDO tee /etc/systemd/system/tg-bridge.service > /dev/null << EOF
 [Unit]
 Description=Telegram Discord Bridge
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 WorkingDirectory=${WORKDIR}
 ExecStart=${NODE_BIN} src/bridge.js
 Restart=always
 RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=10
+TimeoutStopSec=10
 EnvironmentFile=${WORKDIR}/.env
 StandardOutput=journal
 StandardError=journal

@@ -1,7 +1,9 @@
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
-import { dirname } from 'path';
+import { dirname, join } from 'path';
 
-const DATA_FILE = process.env.DATA_FILE || './data/config.json';
+const DATA_FILE  = process.env.DATA_FILE || './data/config.json';
+// Stored separately so frequent message-map writes don't touch the main config.
+const MSGMAP_FILE = join(dirname(DATA_FILE), 'msgmap.json');
 
 const DEFAULT_CONFIG = {
   pairs: []
@@ -98,6 +100,25 @@ export function removePair(id) {
   config.pairs = config.pairs.filter(p => p.id !== id);
   write(config);
   return config.pairs.length < before;
+}
+
+// ── DeepL multi-key management ───────────────────────────────────────────────
+// Keys are stored in config.json (up to 20). Backward compat: if no keys are
+// stored yet and DEEPL_API_KEY is set in .env, that key is used as the sole key.
+
+export function getDeepLKeys() {
+  const keys = read().deeplKeys;
+  if (Array.isArray(keys) && keys.length > 0) return keys;
+  return process.env.DEEPL_API_KEY ? [process.env.DEEPL_API_KEY] : [];
+}
+
+export function setDeepLKeys(keys) {
+  const config = read();
+  config.deeplKeys = keys
+    .filter(k => typeof k === 'string' && k.trim())
+    .map(k => k.trim())
+    .slice(0, 20);
+  write(config);
 }
 
 // ── Translation fallback chain ────────────────────────────────────────────────
@@ -280,3 +301,65 @@ export const DEFAULT_MEDIA_SYNC = {
     document: true
   }
 };
+
+/**
+ * Default per-pair bot-message sync config.
+ * Both directions are disabled by default.
+ * useGlobal: true  → use the global bot whitelist
+ * useGlobal: false → use the pair's own whitelist
+ * whitelist: []    → empty = no bots allowed (even when enabled)
+ */
+export const DEFAULT_BOT_SYNC = {
+  tgToDiscord: { enabled: false, useGlobal: true, whitelist: [] },
+  discordToTg: { enabled: false, useGlobal: true, whitelist: [] }
+};
+
+/**
+ * Default global bot whitelist.
+ * Bot IDs (numeric string) or @usernames accepted for Telegram.
+ * Bot application IDs (snowflake string) or usernames for Discord.
+ */
+export const DEFAULT_BOT_WHITELIST = {
+  tgToDiscord: [],
+  discordToTg: []
+};
+
+export function getBotWhitelist() {
+  return read().botWhitelist ?? JSON.parse(JSON.stringify(DEFAULT_BOT_WHITELIST));
+}
+
+export function setBotWhitelist(wl) {
+  const config = read();
+  config.botWhitelist = {
+    tgToDiscord: Array.isArray(wl.tgToDiscord) ? wl.tgToDiscord : [],
+    discordToTg: Array.isArray(wl.discordToTg) ? wl.discordToTg : []
+  };
+  write(config);
+}
+
+// ── Persistent message map ─────────────────────────────────────────────────────
+// Stored in data/msgmap.json (separate file) so frequent per-message writes
+// do not affect the main config.json.
+// Format: { [pairId]: [ { tg: string, dc: string }, … ] }  (oldest → newest)
+
+function readMsgMap() {
+  if (!existsSync(MSGMAP_FILE)) return {};
+  try { return JSON.parse(readFileSync(MSGMAP_FILE, 'utf-8')); }
+  catch { return {}; }
+}
+
+export function loadAllMsgMaps() {
+  return readMsgMap();
+}
+
+export function saveMsgMap(pairId, entries) {
+  const data = readMsgMap();
+  data[pairId] = entries;
+  writeFileSync(MSGMAP_FILE, JSON.stringify(data), 'utf-8');
+}
+
+export function deleteMsgMap(pairId) {
+  const data = readMsgMap();
+  delete data[pairId];
+  writeFileSync(MSGMAP_FILE, JSON.stringify(data), 'utf-8');
+}

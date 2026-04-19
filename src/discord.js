@@ -31,7 +31,7 @@ export function startDiscord(onMessage, onReaction, onDelete) {
   });
 
   client.on(Events.MessageCreate, message => {
-    if (message.author.bot) return; // ignore bots and webhook messages
+    if (message.webhookId) return;  // ignore our own bridge webhooks (prevents loops)
     if (!message.guild) return;     // ignore DMs — guild messages only
 
     const text        = message.content || null;
@@ -58,11 +58,13 @@ export function startDiscord(onMessage, onReaction, onDelete) {
     const replyToMsgId = message.reference?.messageId ?? null;
 
     onMessage({
-      channelId:   String(message.channel.id),
-      msgId:       String(message.id),
-      senderName:  message.member?.displayName || message.author.username,
-      avatarUrl:   message.author.displayAvatarURL({ size: 128, extension: 'png' }),
-      authorId:    String(message.author.id),
+      channelId:      String(message.channel.id),
+      msgId:          String(message.id),
+      senderName:     message.member?.displayName || message.author.username,
+      avatarUrl:      message.author.displayAvatarURL({ size: 128, extension: 'png' }),
+      authorId:       String(message.author.id),
+      authorUsername: message.author.username,
+      isBot:          message.author.bot,
       text,
       attachments,
       roles,
@@ -128,26 +130,19 @@ export function startDiscord(onMessage, onReaction, onDelete) {
 /**
  * Send a message to Discord via webhook.
  * Supports text-only and single file upload (with optional text).
+ * When options.replyToMsgId is set, Discord reply threading is used via
+ * message_reference so the sender name is always the real person's name.
  * Returns the Discord message ID (snowflake string) or null on error.
- *
- * When options.replyToMsgId AND options.channelId are both provided, the
- * message is sent via the bot client instead of the webhook so Discord's
- * native reply threading ("Replying to X") is shown correctly.
- * (Webhook executions do not support message_reference for reply threading.)
  *
  * @param {string} webhookUrl
  * @param {string} username        Display name
  * @param {string|null} avatarUrl
  * @param {string|null} text
  * @param {{ buffer: Buffer, mimeType: string, fileName: string }|null} fileAttachment
- * @param {{ replyToMsgId?: string, channelId?: string }} [options]
+ * @param {{ replyToMsgId?: string }} [options]
  * @returns {Promise<string|null>}
  */
 export async function sendToDiscord(webhookUrl, username, avatarUrl, text, fileAttachment = null, options = {}) {
-  // Replies must go through the bot client — webhooks don't support threading
-  if (options.replyToMsgId && options.channelId) {
-    return await sendReply(options.channelId, username, text, options.replyToMsgId, fileAttachment);
-  }
   try {
     if (fileAttachment) {
       return await sendWithFile(webhookUrl, username, avatarUrl, text, fileAttachment, options);
@@ -160,52 +155,29 @@ export async function sendToDiscord(webhookUrl, username, avatarUrl, text, fileA
   }
 }
 
-/**
- * Send a threaded reply via the Discord bot client.
- * Used when a TG→DC message is a reply — webhooks don't support reply threading.
- * The sender name is shown in bold at the start of the message content.
- *
- * @param {string} channelId
- * @param {string} username
- * @param {string|null} text
- * @param {string} replyToMsgId   Discord message snowflake to reply to
- * @param {{ buffer: Buffer, mimeType: string, fileName: string }|null} fileAttachment
- * @returns {Promise<string|null>}
- */
-async function sendReply(channelId, username, text, replyToMsgId, fileAttachment = null) {
-  try {
-    const channel = await client.channels.fetch(channelId);
-    if (!channel) return null;
-    const content = `**${username.slice(0, 80)}**${text ? `: ${text}` : ''}`;
-    const opts    = { reply: { messageReference: replyToMsgId } };
-    let msg;
-    if (fileAttachment) {
-      const att = new AttachmentBuilder(fileAttachment.buffer, { name: fileAttachment.fileName });
-      msg = await channel.send({ ...opts, content, files: [att] });
-    } else {
-      msg = await channel.send({ ...opts, content });
-    }
-    return msg?.id ?? null;
-  } catch (err) {
-    console.error('[discord] sendReply error:', err.message);
-    return null;
-  }
-}
 
 async function sendText(webhookUrl, username, avatarUrl, text, options = {}) {
   if (!text) return null;
   const body = { username: username.slice(0, 80), content: text };
   if (avatarUrl) body.avatar_url = avatarUrl;
-  if (options.replyToMsgId) {
-    body.message_reference = { message_id: options.replyToMsgId };
-  }
+  if (options.replyToMsgId) body.message_reference = { message_id: options.replyToMsgId };
 
   // ?wait=true makes Discord return the created Message object (including its ID)
-  const res = await fetch(webhookUrl + '?wait=true', {
+  let res = await fetch(webhookUrl + '?wait=true', {
     method:  'POST',
     headers: { 'Content-Type': 'application/json' },
     body:    JSON.stringify(body)
   });
+
+  // If reply threading failed (e.g. referenced message deleted), retry without it
+  if (!res.ok && res.status === 400 && body.message_reference) {
+    delete body.message_reference;
+    res = await fetch(webhookUrl + '?wait=true', {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(body)
+    });
+  }
 
   if (!res.ok) {
     console.error(`[discord] Webhook text error ${res.status}:`, await res.text());
@@ -263,16 +235,24 @@ export async function getGuildRoles(channelId) {
 async function sendWithFile(webhookUrl, username, avatarUrl, text, { buffer, mimeType, fileName }, options = {}) {
   const payload = { username: username.slice(0, 80), content: text || '' };
   if (avatarUrl) payload.avatar_url = avatarUrl;
-  if (options.replyToMsgId) {
-    payload.message_reference = { message_id: options.replyToMsgId };
-  }
+  if (options.replyToMsgId) payload.message_reference = { message_id: options.replyToMsgId };
 
-  const form = new FormData();
-  form.append('payload_json', JSON.stringify(payload));
-  form.append('files[0]', new Blob([buffer], { type: mimeType }), fileName);
+  const buildForm = (p) => {
+    const form = new FormData();
+    form.append('payload_json', JSON.stringify(p));
+    form.append('files[0]', new Blob([buffer], { type: mimeType }), fileName);
+    return form;
+  };
 
   // ?wait=true so we get the message ID back
-  const res = await fetch(webhookUrl + '?wait=true', { method: 'POST', body: form });
+  let res = await fetch(webhookUrl + '?wait=true', { method: 'POST', body: buildForm(payload) });
+
+  // If reply threading failed (e.g. referenced message deleted), retry without it
+  if (!res.ok && res.status === 400 && payload.message_reference) {
+    delete payload.message_reference;
+    res = await fetch(webhookUrl + '?wait=true', { method: 'POST', body: buildForm(payload) });
+  }
+
   if (!res.ok) {
     console.error(`[discord] Webhook file error ${res.status}:`, await res.text());
     return null;

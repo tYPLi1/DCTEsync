@@ -687,19 +687,16 @@
                 <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-google',this)">🔒</button>
               </div>
             </div>
-            <div class="form-group">
-              <label for="s-deepl">DeepL API Key</label>
-              <div class="token-field">
-                <input type="password" id="s-deepl" name="DEEPL_API_KEY" autocomplete="off" disabled />
-                <button type="button" class="btn-lock" title="Klicken zum Bearbeiten" onclick="unlockField('s-deepl',this)">🔒</button>
+            <div class="form-group wide" id="deepl-keys-section">
+              <label>DeepL API Keys <span style="font-weight:400;color:var(--muted)">(max. 20 · kostenlose Keys enden auf :fx)</span></label>
+              <div id="deepl-keys-list" style="display:flex;flex-direction:column;gap:8px;margin-bottom:8px"></div>
+              <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+                <input type="password" id="deepl-new-key" placeholder="Neuen API-Key einfügen…"
+                  style="flex:1;min-width:200px;font-family:monospace;font-size:0.8rem" autocomplete="off" />
+                <button type="button" class="btn-ghost btn-sm" onclick="addDeepLKey()">+ Hinzufügen</button>
+                <button type="button" class="btn-ghost btn-sm" onclick="loadDeepLUsage()" title="Verbrauch aktualisieren">↻ Aktualisieren</button>
               </div>
-              <div id="deepl-usage" class="usage-wrap" style="display:none">
-                <div class="usage-bar"><div class="usage-bar-fill" id="deepl-usage-fill" style="width:0%"></div></div>
-                <span class="usage-text">
-                  <span id="deepl-usage-text"></span>
-                  <span class="usage-note"> · Daten bis einschl. gestriger UTC-Tag</span>
-                </span>
-              </div>
+              <p class="settings-hint" style="margin-top:6px">Wenn ein Key erschöpft ist, wird automatisch der nächste verwendet. Der Verbrauch wird direkt von DeepL abgefragt — nach dem Monatsreset zeigt er automatisch den neuen Stand.</p>
             </div>
             <div class="form-group">
               <label for="s-libre-url">LibreTranslate URL</label>
@@ -810,6 +807,27 @@
           <button type="button" class="btn-ghost btn-sm" onclick="saveGlobalTiers()">Speichern</button>
         </div>
       </div>
+
+      <!-- Global bot whitelist -->
+      <hr style="border:none;border-top:1px solid var(--border);margin:24px 0 18px">
+      <div class="settings-section" id="global-bot-whitelist-section">
+        <h3>Globale Bot-Whitelist</h3>
+        <p class="settings-hint">Bots, die hier eingetragen sind, dürfen Nachrichten synchronisieren — sofern die per-Verbindung aktivierte Richtung "Globale Whitelist" verwendet. Eintrag pro Zeile: Bot-ID (Zahl) oder Benutzername (mit oder ohne @).</p>
+        <div class="form-grid" style="margin-bottom:10px">
+          <div class="form-group">
+            <label for="global-wl-tg-to-dc">TG → DC (Telegram-Bots)</label>
+            <textarea id="global-wl-tg-to-dc" rows="4" style="resize:vertical;font-family:monospace;font-size:0.8rem" placeholder="123456789&#10;@my_bot&#10;another_bot"></textarea>
+          </div>
+          <div class="form-group">
+            <label for="global-wl-dc-to-tg">DC → TG (Discord-Bots)</label>
+            <textarea id="global-wl-dc-to-tg" rows="4" style="resize:vertical;font-family:monospace;font-size:0.8rem" placeholder="987654321&#10;@discord_bot"></textarea>
+          </div>
+        </div>
+        <div style="display:flex;justify-content:flex-end;align-items:center;gap:12px">
+          <span id="global-wl-save-status" class="save-status">✓ Gespeichert</span>
+          <button type="button" class="btn-ghost btn-sm" onclick="saveGlobalBotWhitelist()">Speichern</button>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -862,6 +880,39 @@
     <div id="empty-state" style="display:none;">
       <strong>No pairs configured yet.</strong>
       <p>Add your first Telegram ↔ Discord channel pair above.</p>
+    </div>
+  </div>
+
+  <!-- EVENT LOG -->
+  <div class="card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px">
+      <h2 style="margin-bottom:0">Event-Log</h2>
+      <div style="display:flex;gap:8px;align-items:center">
+        <label style="font-size:0.75rem;color:var(--muted)">Filter:</label>
+        <input type="text" id="log-filter" placeholder="z.B. ERROR, bridge, TG→DC …" style="font-size:0.78rem;padding:4px 8px;width:180px" />
+        <button type="button" class="btn-ghost btn-sm" onclick="loadLogs()">Aktualisieren</button>
+        <button type="button" class="btn-danger btn-sm" onclick="clearLogFile()">Leeren</button>
+      </div>
+    </div>
+    <div id="log-container" style="
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 12px;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: 'Cascadia Code', 'Fira Code', monospace;
+      font-size: 0.75rem;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      word-break: break-all;
+      color: var(--muted);
+    ">Lade Logs…</div>
+    <div style="display:flex;justify-content:space-between;margin-top:8px">
+      <span style="font-size:0.72rem;color:var(--muted)">Letzte 200 Zeilen · Log-Datei: data/bridge.log</span>
+      <label style="font-size:0.72rem;color:var(--muted);display:flex;align-items:center;gap:6px">
+        <input type="checkbox" id="log-auto-scroll" checked style="margin:0" /> Auto-Scroll
+      </label>
     </div>
   </div>
 </main>
@@ -1153,6 +1204,15 @@ async function saveMediaSync(pairId, partial) {
   }
 }
 
+async function saveBotSync(pairId, partial) {
+  try {
+    await api('PATCH', `/api/pairs/${pairId}/bot-sync`, partial);
+    flashSaved(`media-save-status-${pairId}`);
+  } catch (err) {
+    showToast(`Save failed: ${err.message}`, 'error');
+  }
+}
+
 function flashSaved(id) {
   const el = document.getElementById(id);
   if (!el) return;
@@ -1246,6 +1306,131 @@ function buildMediaPanel(pair) {
   grid.appendChild(tgCol);
   grid.appendChild(dcCol);
   panel.appendChild(grid);
+
+  // ── Bot messages section ──────────────────────────────────────────────────
+  const botHeading = document.createElement('h3');
+  botHeading.textContent = 'Bot-Nachrichten';
+  botHeading.style.cssText = 'margin-top:20px;margin-bottom:8px';
+  panel.appendChild(botHeading);
+
+  const DEFAULT_BS = { enabled: false, useGlobal: true, whitelist: [] };
+  const bs = pair.botSync ?? { tgToDiscord: { ...DEFAULT_BS }, discordToTg: { ...DEFAULT_BS } };
+
+  const botGrid = document.createElement('div');
+  botGrid.className = 'media-grid';
+
+  for (const { dir, dirKey, icon } of [
+    { dir: 'Telegram → Discord', dirKey: 'tgToDiscord', icon: '🔵' },
+    { dir: 'Discord → Telegram', dirKey: 'discordToTg', icon: '🟣' }
+  ]) {
+    const cfg = bs[dirKey] ?? { ...DEFAULT_BS };
+    const col = document.createElement('div');
+    col.className = 'media-section';
+
+    const title = document.createElement('h4');
+    title.textContent = `${icon} ${dir}`;
+    col.appendChild(title);
+
+    // Enable toggle
+    const enableRow = document.createElement('div');
+    enableRow.className = 'toggle-row';
+    const enableTog = toggle(`bs-en-${dirKey}-${pair.id}`, cfg.enabled === true, async (val) => {
+      await saveBotSync(pair.id, { [dirKey]: { enabled: val } });
+      wlBlock.style.display = val ? '' : 'none';
+    });
+    const enableLbl = document.createElement('span');
+    enableLbl.className = 'toggle-label';
+    enableLbl.textContent = '🤖 Bot-Nachrichten weiterleiten';
+    enableRow.appendChild(enableTog);
+    enableRow.appendChild(enableLbl);
+    col.appendChild(enableRow);
+
+    // Whitelist block (hidden when disabled)
+    const wlBlock = document.createElement('div');
+    wlBlock.style.cssText = `margin-top:8px;display:${cfg.enabled ? '' : 'none'}`;
+
+    // useGlobal toggle
+    const useGlobalRow = document.createElement('div');
+    useGlobalRow.className = 'toggle-row';
+    useGlobalRow.style.marginBottom = '6px';
+    const useGlobalTog = toggle(`bs-ug-${dirKey}-${pair.id}`, cfg.useGlobal !== false, async (val) => {
+      await saveBotSync(pair.id, { [dirKey]: { useGlobal: val } });
+      ownBlock.style.display = val ? 'none' : '';
+      globalNote.style.display = val ? '' : 'none';
+    });
+    const useGlobalLbl = document.createElement('span');
+    useGlobalLbl.className = 'toggle-label';
+    useGlobalLbl.textContent = 'Globale Whitelist verwenden';
+    useGlobalRow.appendChild(useGlobalTog);
+    useGlobalRow.appendChild(useGlobalLbl);
+    wlBlock.appendChild(useGlobalRow);
+
+    // Note when using global
+    const globalNote = document.createElement('p');
+    globalNote.style.cssText = 'font-size:12px;color:var(--text-muted,#888);margin:0 0 6px 0';
+    globalNote.textContent = 'Whitelist wird in den globalen Einstellungen verwaltet.';
+    globalNote.style.display = cfg.useGlobal !== false ? '' : 'none';
+    wlBlock.appendChild(globalNote);
+
+    // Own whitelist textarea
+    const ownBlock = document.createElement('div');
+    ownBlock.style.display = cfg.useGlobal !== false ? 'none' : '';
+    const wlLabel = document.createElement('label');
+    wlLabel.style.cssText = 'font-size:12px;display:block;margin-bottom:4px;color:var(--text-muted,#888)';
+    wlLabel.textContent = 'Bot-IDs / @usernames (eine pro Zeile):';
+    const wlArea = document.createElement('textarea');
+    wlArea.rows = 4;
+    wlArea.style.cssText = 'width:100%;box-sizing:border-box;font-size:12px;resize:vertical';
+    wlArea.value = (cfg.whitelist ?? []).join('\n');
+    const wlSaveBtn = document.createElement('button');
+    wlSaveBtn.textContent = 'Speichern';
+    wlSaveBtn.style.marginTop = '4px';
+    wlSaveBtn.onclick = async () => {
+      const list = wlArea.value.split('\n').map(s => s.trim()).filter(Boolean);
+      await saveBotSync(pair.id, { [dirKey]: { whitelist: list } });
+    };
+    ownBlock.appendChild(wlLabel);
+    ownBlock.appendChild(wlArea);
+    ownBlock.appendChild(wlSaveBtn);
+    wlBlock.appendChild(ownBlock);
+
+    col.appendChild(wlBlock);
+    botGrid.appendChild(col);
+  }
+
+  panel.appendChild(botGrid);
+
+  // ── Message history limit ─────────────────────────────────────────────────
+  const histDiv = document.createElement('div');
+  histDiv.style.cssText = 'margin-top:18px;display:flex;align-items:center;gap:10px;flex-wrap:wrap';
+  const histLabel = document.createElement('label');
+  histLabel.textContent = 'Nachrichtenverlauf (max. 200):';
+  histLabel.style.cssText = 'font-size:0.8rem;font-weight:600;white-space:nowrap';
+  const histInput = document.createElement('input');
+  histInput.type = 'number';
+  histInput.min = '10';
+  histInput.max = '200';
+  histInput.value = pair.msgMapLimit ?? 200;
+  histInput.style.cssText = 'width:72px;font-size:0.8rem;padding:3px 6px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text)';
+  const histHint = document.createElement('span');
+  histHint.style.cssText = 'font-size:0.72rem;color:var(--muted)';
+  histHint.textContent = 'Nachrichten pro Pair im Speicher + auf Disk';
+  const histBtn = document.createElement('button');
+  histBtn.className = 'btn-ghost btn-sm';
+  histBtn.textContent = 'Speichern';
+  histBtn.onclick = async () => {
+    const v = parseInt(histInput.value, 10);
+    if (isNaN(v) || v < 10 || v > 200) { showToast('Wert muss zwischen 10 und 200 liegen.', 'error'); return; }
+    try {
+      await api('PATCH', `/api/pairs/${pair.id}/msg-map-limit`, { limit: v });
+      flashSaved(`media-save-status-${pair.id}`);
+    } catch (err) { showToast('Fehler: ' + err.message, 'error'); }
+  };
+  histDiv.appendChild(histLabel);
+  histDiv.appendChild(histInput);
+  histDiv.appendChild(histBtn);
+  histDiv.appendChild(histHint);
+  panel.appendChild(histDiv);
 
   // Save indicator
   const footer = document.createElement('div');
@@ -1665,7 +1850,7 @@ document.getElementById('add-form').addEventListener('submit', async (e) => {
 
 const SENSITIVE_FIELDS = [
   'TELEGRAM_TOKEN','DISCORD_TOKEN','ANTHROPIC_API_KEY',
-  'OPENAI_API_KEY','GOOGLE_TRANSLATE_API_KEY','DEEPL_API_KEY',
+  'OPENAI_API_KEY','GOOGLE_TRANSLATE_API_KEY',
   'LIBRETRANSLATE_API_KEY','MICROSOFT_TRANSLATOR_KEY'
 ];
 
@@ -1793,24 +1978,120 @@ async function loadLibreUsage() {
   }
 }
 
+// In-memory copy of current DeepL keys (masked) for the UI
+let _deeplKeys = [];
+
+function renderDeepLKeys() {
+  const list = document.getElementById('deepl-keys-list');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!_deeplKeys.length) {
+    list.innerHTML = '<span style="font-size:0.8rem;color:var(--muted)">Noch keine Keys eingetragen.</span>';
+    return;
+  }
+  const fmt = n => n?.toLocaleString('de-DE') ?? '–';
+  for (const k of _deeplKeys) {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;flex-direction:column;gap:4px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface)';
+
+    // Header row: index badge + masked key + type badge + exhausted badge + buttons
+    const head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:center;gap:8px;flex-wrap:wrap';
+    head.innerHTML = `
+      <span style="font-size:0.7rem;font-weight:700;background:var(--surface2);border-radius:4px;padding:1px 6px">Key #${k.index}</span>
+      <code style="font-size:0.78rem;color:var(--text)">${k.masked}</code>
+      <span style="font-size:0.7rem;color:var(--muted)">${k.isFree ? 'Free' : 'Pro'}</span>
+      ${k.exhausted ? '<span style="font-size:0.7rem;font-weight:700;color:var(--danger)">ERSCHÖPFT</span>' : ''}
+    `;
+    const btnWrap = document.createElement('div');
+    btnWrap.style.cssText = 'margin-left:auto;display:flex;gap:6px';
+    if (k.exhausted) {
+      const resetBtn = document.createElement('button');
+      resetBtn.className = 'btn-ghost btn-sm';
+      resetBtn.textContent = 'Reset';
+      resetBtn.onclick = () => resetDeepLKey(k.index);
+      btnWrap.appendChild(resetBtn);
+    }
+    const delBtn = document.createElement('button');
+    delBtn.className = 'btn-ghost btn-sm';
+    delBtn.style.color = 'var(--danger)';
+    delBtn.textContent = '✕';
+    delBtn.title = 'Key entfernen';
+    delBtn.onclick = () => removeDeepLKey(k.index);
+    btnWrap.appendChild(delBtn);
+    head.appendChild(btnWrap);
+    row.appendChild(head);
+
+    // Usage bar (if available)
+    if (k.usage) {
+      const { character_count: used, character_limit: limit } = k.usage;
+      const pct = limit > 0 ? Math.min(100, (used / limit) * 100) : 0;
+      const bar = document.createElement('div');
+      bar.innerHTML = `
+        <div class="usage-bar" style="margin-bottom:2px"><div class="usage-bar-fill ${pct >= 90 ? 'danger' : pct >= 70 ? 'warn' : ''}" style="width:${pct.toFixed(1)}%"></div></div>
+        <span class="usage-text" style="font-size:0.72rem">${fmt(used)} / ${fmt(limit)} Zeichen (${pct.toFixed(1)}%) · Live von DeepL</span>
+      `;
+      row.appendChild(bar);
+    } else if (k.error) {
+      const err = document.createElement('span');
+      err.style.cssText = 'font-size:0.72rem;color:var(--danger)';
+      err.textContent = `Fehler: ${k.error}`;
+      row.appendChild(err);
+    }
+
+    list.appendChild(row);
+  }
+}
+
 async function loadDeepLUsage() {
-  const wrap = document.getElementById('deepl-usage');
-  const fill = document.getElementById('deepl-usage-fill');
-  const text = document.getElementById('deepl-usage-text');
-  if (!wrap || !fill || !text) return;
   try {
     const d = await api('GET', '/api/deepl-usage');
-    const pct = d.character_limit > 0
-      ? Math.min(100, (d.character_count / d.character_limit) * 100)
-      : 0;
-    fill.style.width = pct.toFixed(1) + '%';
-    fill.className = 'usage-bar-fill' + (pct >= 90 ? ' danger' : pct >= 70 ? ' warn' : '');
-    const fmt = n => n.toLocaleString('de-DE');
-    text.textContent =
-      `${fmt(d.character_count)} / ${fmt(d.character_limit)} Zeichen (${pct.toFixed(1)}%)`;
-    wrap.style.display = 'flex';
+    _deeplKeys = d.keys ?? [];
+    renderDeepLKeys();
   } catch {
-    wrap.style.display = 'none';
+    // Endpoint returns 404 if no keys configured — just render empty
+    _deeplKeys = [];
+    renderDeepLKeys();
+  }
+}
+
+async function addDeepLKey() {
+  const input = document.getElementById('deepl-new-key');
+  const key = input?.value?.trim();
+  if (!key) { showToast('Bitte einen API-Key eingeben.', 'error'); return; }
+  // Collect current raw keys — we only have masked versions, so we fetch the real list indirectly via PUT
+  // Strategy: PUT sends the current masked list + new key. But masked keys can't be re-sent.
+  // Instead we store the count and send { keys: [...existingKeys, newKey] } — but we don't have existing keys client-side.
+  // Solution: use a dedicated POST /api/deepl-keys/add endpoint — or just PUT with the full list from a separate GET.
+  // Since we only mask on display, we need a way to append. Use PATCH-style: POST /api/deepl-keys/add.
+  try {
+    await api('POST', '/api/deepl-keys/add', { key });
+    input.value = '';
+    await loadDeepLUsage();
+    showToast('DeepL Key hinzugefügt.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+}
+
+async function removeDeepLKey(index) {
+  if (!confirm(`Key #${index} wirklich entfernen?`)) return;
+  try {
+    await api('DELETE', `/api/deepl-keys/${index}`);
+    await loadDeepLUsage();
+    showToast('Key entfernt.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+}
+
+async function resetDeepLKey(index) {
+  try {
+    await api('POST', '/api/deepl-keys/reset-exhausted', index != null ? { index } : {});
+    await loadDeepLUsage();
+    showToast('Erschöpfungsstatus zurückgesetzt.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
   }
 }
 
@@ -1845,9 +2126,8 @@ async function loadSettings() {
         el.value = cfg[el.name];
       }
     }
-    // Load DeepL usage whenever a key is configured
-    if (cfg['DEEPL_API_KEY']) loadDeepLUsage();
-    else { const w = document.getElementById('deepl-usage'); if (w) w.style.display = 'none'; }
+    // Load DeepL multi-key list + usage
+    loadDeepLUsage();
 
     // Load Microsoft usage whenever a key is configured
     if (cfg['MICROSOFT_TRANSLATOR_KEY']) loadMicrosoftUsage();
@@ -1862,6 +2142,9 @@ async function loadSettings() {
 
     // Load translation tiers
     loadTranslationTiers();
+
+    // Load global bot whitelist
+    loadGlobalBotWhitelist();
 
   } catch (err) {
     showToast('Could not load settings: ' + err.message, 'error');
@@ -2253,6 +2536,34 @@ async function saveGlobalTiers() {
   }
 }
 
+// ── Global Bot Whitelist ──────────────────────────────────────────────────────
+
+async function loadGlobalBotWhitelist() {
+  try {
+    const data = await api('GET', '/api/bot-whitelist');
+    const tgEl = document.getElementById('global-wl-tg-to-dc');
+    const dcEl = document.getElementById('global-wl-dc-to-tg');
+    if (tgEl) tgEl.value = (data.tgToDiscord ?? []).join('\n');
+    if (dcEl) dcEl.value = (data.discordToTg ?? []).join('\n');
+  } catch (err) {
+    showToast('Fehler beim Laden der Bot-Whitelist: ' + err.message, 'error');
+  }
+}
+
+async function saveGlobalBotWhitelist() {
+  const tgEl = document.getElementById('global-wl-tg-to-dc');
+  const dcEl = document.getElementById('global-wl-dc-to-tg');
+  const tgToDiscord = (tgEl?.value ?? '').split('\n').map(s => s.trim()).filter(Boolean);
+  const discordToTg = (dcEl?.value ?? '').split('\n').map(s => s.trim()).filter(Boolean);
+  try {
+    await api('PATCH', '/api/bot-whitelist', { tgToDiscord, discordToTg });
+    flashSaved('global-wl-save-status');
+    showToast('Bot-Whitelist gespeichert.', 'ok');
+  } catch (err) {
+    showToast('Fehler beim Speichern: ' + err.message, 'error');
+  }
+}
+
 // ── Per-pair Premium Panel ─────────────────────────────────────────────────────
 
 function buildPremiumPanel(pair) {
@@ -2446,6 +2757,60 @@ async function loadPremiumRoles(pairId, currentOverrideRoleIds) {
 loadPairs();
 refreshStatus();
 setInterval(refreshStatus, 30_000);
+loadLogs();
+setInterval(loadLogs, 15_000);
+
+// ── Event Log ─────────────────────────────────────────────────────────────────
+
+const LOG_COLORS = {
+  ERROR: 'var(--danger)',
+  WARN:  'var(--warn)',
+  INFO:  'var(--muted)',
+};
+
+async function loadLogs() {
+  const container = document.getElementById('log-container');
+  if (!container) return;
+  try {
+    const data = await api('GET', '/api/logs?lines=200');
+    const filter = (document.getElementById('log-filter')?.value || '').toLowerCase();
+    const lines = filter
+      ? data.lines.filter(l => l.toLowerCase().includes(filter))
+      : data.lines;
+
+    container.innerHTML = '';
+    if (!lines.length) {
+      container.textContent = filter ? 'Keine Treffer.' : 'Keine Logs vorhanden.';
+      return;
+    }
+    for (const line of lines) {
+      const span = document.createElement('span');
+      span.style.display = 'block';
+      if (line.includes('[ERROR]')) span.style.color = LOG_COLORS.ERROR;
+      else if (line.includes('[WARN]')) span.style.color = LOG_COLORS.WARN;
+      span.textContent = line;
+      container.appendChild(span);
+    }
+    if (document.getElementById('log-auto-scroll')?.checked) {
+      container.scrollTop = container.scrollHeight;
+    }
+  } catch (err) {
+    container.textContent = 'Fehler beim Laden: ' + err.message;
+  }
+}
+
+async function clearLogFile() {
+  if (!confirm('Log-Datei leeren?')) return;
+  try {
+    await api('DELETE', '/api/logs');
+    loadLogs();
+    showToast('Log geleert.', 'ok');
+  } catch (err) {
+    showToast('Fehler: ' + err.message, 'error');
+  }
+}
+
+document.getElementById('log-filter')?.addEventListener('input', () => loadLogs());
 
 // ── Auto-Detect Telegram Chats ────────────────────────────────────────────────
 

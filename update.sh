@@ -24,7 +24,7 @@ fi
 # ── Determine default branch (remote HEAD) ───────────────────────────────────
 DEFAULT_BRANCH="$(git remote show origin 2>/dev/null | awk '/HEAD branch/ {print $NF}')"
 if [ -z "$DEFAULT_BRANCH" ] || [ "$DEFAULT_BRANCH" = "(unknown)" ]; then
-  DEFAULT_BRANCH="claude/telegram-discord-bridge-bUm5a"
+  DEFAULT_BRANCH="feat-bot-sync"
 fi
 
 # ── Parse arguments ───────────────────────────────────────────────────────────
@@ -140,7 +140,7 @@ else
   echo -e "${YELLOW}⚠ npm not found, skipping dependency install.${RESET}"
 fi
 
-# ── Restart service if systemd is set up ─────────────────────────────────────
+# ── Update systemd service config ────────────────────────────────────────────
 # Use 'sudo' only when not already root
 if [ "$(id -u)" = "0" ]; then
   SUDO=""
@@ -148,6 +148,43 @@ else
   SUDO="sudo"
 fi
 
+SERVICE_FILE="/etc/systemd/system/tg-bridge.service"
+
+if [ -f "$SERVICE_FILE" ]; then
+  echo ""
+  echo -e "${BOLD}── Updating systemd service config ──────────${RESET}"
+
+  WORKDIR="$(pwd)"
+  NODE_BIN="$(which node)"
+
+  # Write the current canonical service config
+  $SUDO tee "$SERVICE_FILE" > /dev/null << SVCEOF
+[Unit]
+Description=Telegram Discord Bridge
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+WorkingDirectory=${WORKDIR}
+ExecStart=${NODE_BIN} src/bridge.js
+Restart=always
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=10
+TimeoutStopSec=10
+EnvironmentFile=${WORKDIR}/.env
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+SVCEOF
+
+  $SUDO systemctl daemon-reload
+  echo -e "${GREEN}✓ Service config updated${RESET}"
+fi
+
+# ── Restart service if systemd is set up ─────────────────────────────────────
 echo ""
 if systemctl list-unit-files 2>/dev/null | grep -q '^tg-bridge\.service'; then
   echo -e "${BOLD}── Restarting service ───────────────────────${RESET}"
