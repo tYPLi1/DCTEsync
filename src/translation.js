@@ -298,13 +298,56 @@ function isQuotaError(err) {
   );
 }
 
+// ── Pre-translation filtering ────────────────────────────────────────────────
+// Strip URLs and emoji from text before translation, then restore them after.
+// This saves tokens and prevents translators from mangling links.
+
+const URL_RE = /https?:\/\/[^\s)>\]]+/g;
+const EMOJI_RE = /(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F)(?:\u200D(?:\p{Emoji_Presentation}|\p{Emoji}\uFE0F))*/gu;
+
+function stripUntranslatables(text) {
+  const placeholders = [];
+  let idx = 0;
+
+  const cleaned = text
+    .replace(URL_RE, (match) => {
+      const ph = `__PH${idx++}__`;
+      placeholders.push({ ph, original: match });
+      return ph;
+    })
+    .replace(EMOJI_RE, (match) => {
+      const ph = `__PH${idx++}__`;
+      placeholders.push({ ph, original: match });
+      return ph;
+    });
+
+  return {
+    cleaned,
+    skipped: placeholders.length,
+    restore(translated) {
+      let result = translated;
+      for (const { ph, original } of placeholders) {
+        result = result.replace(ph, original);
+      }
+      return result;
+    }
+  };
+}
+
 // ── Internal: single provider, throws on any error ───────────────────────────
 
 async function translateProvider(text, targetLanguage, provider) {
   if (!text?.trim()) return text;
   const fn = PROVIDERS[provider];
   if (!fn) throw new Error(`Unknown provider: ${provider}`);
-  return (await fn(text, targetLanguage)) || text;
+
+  const { cleaned, skipped, restore } = stripUntranslatables(text);
+
+  // Nothing left to translate (text was only links/emoji)
+  if (!cleaned.replace(/__PH\d+__/g, '').trim()) return text;
+
+  const translated = (await fn(cleaned, targetLanguage)) || cleaned;
+  return restore(translated);
 }
 
 // ── Public: single provider with catch (backward compat) ─────────────────────
