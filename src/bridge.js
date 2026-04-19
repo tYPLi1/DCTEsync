@@ -30,6 +30,35 @@ import { store as mmStore, loadPersisted, getAll, tgToDc, dcToTg, removeByDc }  
 import { downloadUrl, classifyMime, DISCORD_MAX_BYTES, TELEGRAM_MAX_BYTES } from './media.js';
 import { startWeb }                                                  from './web.js';
 
+// ── Process-level crash & freeze protection ──────────────────────────────────
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception — restarting via systemd:', err.message);
+  console.error(err.stack);
+  process.exit(1);
+});
+
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled promise rejection — restarting via systemd:', reason);
+  process.exit(1);
+});
+
+// Event-loop watchdog: if the event loop is blocked for more than 30s the
+// process is considered frozen and exits so systemd can restart it.
+const WATCHDOG_INTERVAL_MS = 10_000;
+const WATCHDOG_MAX_DELAY_MS = 30_000;
+let _lastWatchdogTick = Date.now();
+
+setInterval(() => {
+  const now = Date.now();
+  const drift = now - _lastWatchdogTick - WATCHDOG_INTERVAL_MS;
+  if (drift > WATCHDOG_MAX_DELAY_MS) {
+    console.error(`[FATAL] Event loop frozen for ${Math.round(drift / 1000)}s — restarting via systemd`);
+    process.exit(1);
+  }
+  _lastWatchdogTick = now;
+}, WATCHDOG_INTERVAL_MS).unref();
+
 // ── Safe translation wrapper ──────────────────────────────────────────────────
 // Guarantees a string is always returned even if maybeTranslate throws
 // unexpectedly (e.g. file-system errors in getTranslationChain).
