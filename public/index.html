@@ -26,16 +26,18 @@
   --shadow: 0 1px 3px rgba(0,0,0,.06);
   --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
   --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+  --sidebar-bg: #f0f0f3;
 }
 
 [data-theme="dark"] {
-  --bg: #0e0f13;
-  --surface: #191a21;
-  --surface-alt: #1e2029;
-  --border: #2a2c39;
+  --bg: #1a1b23;
+  --surface: #22232d;
+  --surface-alt: #282a35;
+  --border: #2e3040;
   --text: #dfe1e8;
   --text-secondary: #8b8fa4;
   --shadow: 0 1px 3px rgba(0,0,0,.2);
+  --sidebar-bg: #13141b;
 }
 
 /* ── Reset ────────────────────────────────────────────────────────────── */
@@ -44,49 +46,89 @@ body { font-family: var(--font); background: var(--bg); color: var(--text); min-
 a { color: var(--accent); text-decoration: none; }
 
 /* ── App Shell ────────────────────────────────────────────────────────── */
-.app { max-width: 880px; margin: 0 auto; padding: 20px 16px 60px; }
+.app-shell { display: flex; min-height: 100vh; }
 
-.app-header {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 0 0 16px; margin-bottom: 4px; flex-wrap: wrap; gap: 10px;
+/* ── Sidebar ──────────────────────────────────────────────────────────── */
+.sidebar {
+  width: 280px; flex-shrink: 0; background: var(--sidebar-bg);
+  border-right: 1px solid var(--border); display: flex; flex-direction: column;
+  position: fixed; top: 0; left: 0; bottom: 0; z-index: 100;
+  transition: transform .25s ease;
 }
-.app-header h1 { font-size: 1.2rem; font-weight: 700; letter-spacing: -.01em; }
-.app-header h1 .tg { color: var(--accent-tg); }
-.app-header h1 .dc { color: var(--accent); }
+.sidebar-header { padding: 24px 20px 12px; }
+.sidebar-header h1 { font-size: 1.15rem; font-weight: 700; color: var(--text); letter-spacing: -.01em; }
+.sidebar-header .subtitle { font-size: .75rem; color: var(--text-secondary); margin-top: 2px; }
 
-.header-right { display: flex; align-items: center; gap: 12px; }
-
-.status-bar {
-  display: flex; align-items: center; gap: 14px;
-  font-size: .75rem; color: var(--text-secondary); flex-wrap: wrap;
+.sidebar-status {
+  display: flex; flex-direction: column; gap: 5px; padding: 10px 20px 14px;
+  font-size: .73rem; color: var(--text-secondary); border-bottom: 1px solid var(--border);
 }
+.sidebar-status span { display: flex; align-items: center; gap: 6px; }
+
 .status-dot {
   width: 7px; height: 7px; border-radius: 50%;
-  background: var(--success); display: inline-block; margin-right: 3px;
+  background: var(--success); display: inline-block; flex-shrink: 0;
 }
 
-/* Theme toggle */
-.theme-btn {
-  background: var(--surface-alt); border: 1px solid var(--border);
-  border-radius: 6px; padding: 5px 10px; cursor: pointer;
-  color: var(--text-secondary); font-size: .8rem; line-height: 1;
-  transition: border-color .15s, color .15s;
+.sidebar-nav { flex: 1; overflow-y: auto; padding: 14px 0; }
+.nav-category {
+  font-size: .68rem; font-weight: 700; letter-spacing: .06em;
+  text-transform: uppercase; color: var(--text-secondary);
+  padding: 10px 20px 4px; user-select: none;
 }
-.theme-btn:hover { color: var(--text); border-color: var(--accent); }
+.nav-item {
+  display: flex; align-items: center; gap: 10px; padding: 9px 20px;
+  font-size: .84rem; color: var(--text-secondary); cursor: pointer;
+  border-left: 3px solid transparent; transition: color .15s, border-color .15s, background .15s;
+  user-select: none;
+}
+.nav-item:hover { color: var(--text); background: var(--surface-alt); }
+.nav-item.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
+.nav-item .nav-icon { font-size: 1rem; width: 20px; text-align: center; flex-shrink: 0; }
 
-/* ── Tab Nav ──────────────────────────────────────────────────────────── */
-.tab-nav {
-  display: flex; gap: 2px; margin-bottom: 20px;
-  border-bottom: 1px solid var(--border); padding-bottom: 0;
+.sidebar-footer {
+  padding: 14px 20px; border-top: 1px solid var(--border);
+  display: flex; flex-direction: column; gap: 10px;
 }
-.tab-btn {
-  background: none; border: none; border-bottom: 2px solid transparent;
-  padding: 8px 16px; font-size: .85rem; font-weight: 500;
-  color: var(--text-secondary); cursor: pointer;
-  transition: color .15s, border-color .15s;
+.sidebar-theme-toggle {
+  display: flex; align-items: center; gap: 8px; font-size: .78rem; color: var(--text-secondary); cursor: pointer;
 }
-.tab-btn:hover { color: var(--text); }
-.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.sidebar-theme-toggle input[type="checkbox"] { display: none; }
+.sidebar-theme-toggle .theme-switch {
+  width: 34px; height: 18px; background: var(--border); border-radius: 18px;
+  position: relative; transition: background .2s; flex-shrink: 0;
+}
+.sidebar-theme-toggle .theme-switch::before {
+  content: ''; position: absolute; width: 12px; height: 12px;
+  left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .2s;
+}
+.sidebar-theme-toggle input:checked ~ .theme-switch { background: var(--accent); }
+.sidebar-theme-toggle input:checked ~ .theme-switch::before { transform: translateX(16px); }
+
+.sidebar-version { font-size: .7rem; color: var(--text-secondary); opacity: .7; }
+
+/* ── Main Content ─────────────────────────────────────────────────────── */
+.main-content { flex: 1; margin-left: 280px; padding: 28px 32px 60px; max-width: 920px; }
+
+/* ── Mobile Menu ──────────────────────────────────────────────────────── */
+.mobile-menu-btn {
+  display: none; position: fixed; top: 12px; left: 12px; z-index: 200;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 6px;
+  padding: 6px 10px; font-size: 1.2rem; cursor: pointer; color: var(--text);
+  box-shadow: var(--shadow);
+}
+
+.sidebar-overlay {
+  display: none; position: fixed; inset: 0; background: rgba(0,0,0,.4); z-index: 99;
+}
+
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); }
+  .sidebar.open { transform: translateX(0); }
+  .sidebar-overlay.open { display: block; }
+  .main-content { margin-left: 0; padding: 60px 16px 60px; }
+  .mobile-menu-btn { display: block; }
+}
 
 .tab-content { display: none; }
 .tab-content.active { display: block; }
@@ -334,37 +376,58 @@ button { font-family: var(--font); }
 @media (max-width: 560px) {
   .form-grid { grid-template-columns: 1fr; }
   .pair-header { padding: 10px 12px; }
+  .main-content { padding: 60px 12px 60px; }
 }
 </style>
 </head>
 <body>
-<div class="app">
+<div class="app-shell">
 
-<!-- ── Header ─────────────────────────────────────────────────────────── -->
-<header class="app-header">
-  <div>
-    <h1><span class="tg">Telegram</span> ↔ <span class="dc">Discord</span> Bridge</h1>
+<!-- ── Sidebar ─────────────────────────────────────────────────────────── -->
+<aside class="sidebar" id="sidebar">
+  <div class="sidebar-header">
+    <h1>DCTEsync</h1>
+    <div class="subtitle">Bot Dashboard</div>
   </div>
-  <div class="header-right">
-    <div id="status-bar" class="status-bar">
-      <span><span class="status-dot"></span>Running</span>
-      <span id="stat-uptime">–</span>
-      <span id="stat-pairs">0 pairs</span>
-      <span id="stat-translation">–</span>
+  <div class="sidebar-status" id="sidebar-status">
+    <span><span class="status-dot"></span><span id="stat-running">Running</span></span>
+    <span id="stat-uptime">Uptime: –</span>
+    <span id="stat-pairs">0 Verbindungen</span>
+  </div>
+  <nav class="sidebar-nav">
+    <div class="nav-category">Brücke</div>
+    <div class="nav-item active" data-tab="connections" onclick="switchTab('connections')">
+      <span class="nav-icon">🔗</span> Verbindungen
     </div>
-    <button class="theme-btn" id="theme-toggle" onclick="toggleTheme()" title="Design wechseln">☀</button>
+    <div class="nav-category">Konfiguration</div>
+    <div class="nav-item" data-tab="settings" onclick="switchTab('settings')">
+      <span class="nav-icon">🔑</span> Tokens &amp; API
+    </div>
+    <div class="nav-item" data-tab="translation" onclick="switchTab('translation')">
+      <span class="nav-icon">🌐</span> Übersetzung
+    </div>
+    <div class="nav-item" data-tab="whitelist" onclick="switchTab('whitelist')">
+      <span class="nav-icon">🤖</span> Bot-Whitelist
+    </div>
+    <div class="nav-category">System</div>
+    <div class="nav-item" data-tab="logs" onclick="switchTab('logs')">
+      <span class="nav-icon">📋</span> Protokoll
+    </div>
+  </nav>
+  <div class="sidebar-footer">
+    <div class="sidebar-theme-toggle" onclick="toggleTheme()">
+      <input type="checkbox" id="theme-checkbox" />
+      <span class="theme-switch"></span>
+      <span id="theme-label">☀ Light Mode</span>
+    </div>
+    <span class="sidebar-version">DCTEsync v1.0</span>
   </div>
-</header>
+</aside>
+<div class="sidebar-overlay" id="sidebar-overlay" onclick="toggleSidebar()"></div>
 
-<!-- ── Navigation ─────────────────────────────────────────────────────── -->
-<nav class="tab-nav">
-  <button class="tab-btn active" data-tab="connections" onclick="switchTab('connections')">Verbindungen</button>
-  <button class="tab-btn" data-tab="settings" onclick="switchTab('settings')">Einstellungen</button>
-  <button class="tab-btn" data-tab="logs" onclick="switchTab('logs')">Protokoll</button>
-</nav>
-
-<!-- ── Content ────────────────────────────────────────────────────────── -->
-<main>
+<!-- ── Main Content ────────────────────────────────────────────────────── -->
+<button class="mobile-menu-btn" id="mobile-menu-btn" onclick="toggleSidebar()">☰</button>
+<main class="main-content">
 
 <!-- ──────────── TAB: Connections ──────────────────────────────────────── -->
 <section id="tab-connections" class="tab-content active">
@@ -570,9 +633,13 @@ button { font-family: var(--font); }
         <button type="submit" class="btn btn-primary">Einstellungen speichern</button>
       </div>
     </form>
+  </div>
+</section>
 
+<!-- ──────────── TAB: Translation ──────────────────────────────────────── -->
+<section id="tab-translation" class="tab-content">
+  <div class="card">
     <!-- Translation chain -->
-    <hr class="divider">
     <div class="settings-section" id="chain-section">
       <h3>Translation Fallback-Kette</h3>
       <p class="settings-hint">Reihenfolge der Übersetzungs-Anbieter. Wenn ein Anbieter sein Limit erreicht, wird der nächste versucht.</p>
@@ -611,9 +678,12 @@ button { font-family: var(--font); }
         <button type="button" class="btn btn-ghost btn-sm" onclick="saveGlobalTiers()">Speichern</button>
       </div>
     </div>
+  </div>
+</section>
 
-    <!-- Global bot whitelist -->
-    <hr class="divider">
+<!-- ──────────── TAB: Whitelist ─────────────────────────────────────────── -->
+<section id="tab-whitelist" class="tab-content">
+  <div class="card">
     <div class="settings-section" id="global-bot-whitelist-section">
       <h3>Globale Bot-Whitelist</h3>
       <p class="settings-hint">Bots hier eingetragen dürfen Nachrichten synchronisieren, sofern die Verbindung "Globale Whitelist" nutzt. Eintrag pro Zeile.</p>
@@ -670,7 +740,7 @@ function initTheme() {
   const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
   const theme = saved || (prefersDark ? 'dark' : 'light');
   document.documentElement.setAttribute('data-theme', theme);
-  updateThemeBtn(theme);
+  updateThemeUI(theme);
 }
 
 function toggleTheme() {
@@ -678,26 +748,54 @@ function toggleTheme() {
   const next = current === 'dark' ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
-  updateThemeBtn(next);
+  updateThemeUI(next);
 }
 
-function updateThemeBtn(theme) {
-  const btn = document.getElementById('theme-toggle');
-  if (btn) btn.textContent = theme === 'dark' ? '☀' : '☽';
+function updateThemeUI(theme) {
+  const cb = document.getElementById('theme-checkbox');
+  const label = document.getElementById('theme-label');
+  if (cb) cb.checked = theme === 'dark';
+  if (label) label.textContent = theme === 'dark' ? '☽ Dark Mode' : '☀ Light Mode';
 }
 
 initTheme();
 
+// ── Sidebar Toggle (Mobile) ──────────────────────────────────────────────────
+
+function toggleSidebar() {
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  sidebar.classList.toggle('open');
+  overlay.classList.toggle('open');
+}
+
 // ── Tab Navigation ───────────────────────────────────────────────────────────
 
-let _settingsLoaded = false;
+let _loaded = {};
 
 function switchTab(name) {
-  document.querySelectorAll('.tab-btn').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
   document.querySelectorAll('.tab-content').forEach(s => s.classList.toggle('active', s.id === 'tab-' + name));
-  if (name === 'settings' && !_settingsLoaded) {
-    _settingsLoaded = true;
+
+  // Close mobile sidebar
+  const sidebar = document.getElementById('sidebar');
+  const overlay = document.getElementById('sidebar-overlay');
+  if (sidebar) sidebar.classList.remove('open');
+  if (overlay) overlay.classList.remove('open');
+
+  // Lazy-load data per tab
+  if (name === 'settings' && !_loaded.settings) {
+    _loaded.settings = true;
     loadSettings();
+  }
+  if (name === 'translation' && !_loaded.translation) {
+    _loaded.translation = true;
+    loadTranslationChain();
+    loadTranslationTiers();
+  }
+  if (name === 'whitelist' && !_loaded.whitelist) {
+    _loaded.whitelist = true;
+    loadGlobalBotWhitelist();
   }
   if (name === 'logs') loadLogs();
 }
@@ -754,12 +852,10 @@ async function refreshStatus() {
     const s = await api('GET', '/api/status');
     const h = Math.floor(s.uptime / 3600);
     const m = Math.floor((s.uptime % 3600) / 60);
-    document.getElementById('stat-uptime').textContent = `${h}h ${m}m`;
+    document.getElementById('stat-uptime').textContent = `Uptime: ${h}h ${m}m`;
     document.getElementById('stat-pairs').textContent = `${s.pairs} Verbindung${s.pairs !== 1 ? 'en' : ''}`;
     const tp = s.translationProviders ?? {};
     const active = PROVIDERS.filter(p => tp[p.id]).map(p => p.label.split(' (')[0]);
-    document.getElementById('stat-translation').textContent =
-      active.length ? active.join(' · ') : 'Keine Übersetzer konfiguriert';
     window._providerStatus = tp;
   } catch { /* ignore */ }
 }
@@ -1974,9 +2070,6 @@ async function loadSettings() {
     else { const w = document.getElementById('ms-usage'); if (w) w.style.display = 'none'; }
     if (cfg['LIBRETRANSLATE_URL']) loadLibreUsage();
     else { const w = document.getElementById('libre-usage'); if (w) w.style.display = 'none'; }
-    loadTranslationChain();
-    loadTranslationTiers();
-    loadGlobalBotWhitelist();
   } catch (err) { showToast('Einstellungen konnten nicht geladen werden: ' + err.message, 'error'); }
 }
 
@@ -2469,8 +2562,6 @@ document.addEventListener('DOMContentLoaded', () => {
 loadPairs();
 refreshStatus();
 setInterval(refreshStatus, 30000);
-loadLogs();
-setInterval(loadLogs, 15000);
 </script>
 </body>
 </html>
