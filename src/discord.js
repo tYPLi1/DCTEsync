@@ -34,18 +34,20 @@ export function startDiscord(onMessage, onReaction, onDelete) {
     if (message.webhookId) return;  // ignore our own bridge webhooks (prevents loops)
     if (!message.guild) return;     // ignore DMs — guild messages only
 
-    const mapAttachment = (a) => ({
+    const mapAttachment = (a, idx = 0) => ({
       url:         a?.url ?? null,
-      name:        a?.name ?? a?.filename ?? 'attachment',
+      name:        a?.name ?? a?.filename ?? `attachment-${idx + 1}`,
       contentType: a?.contentType ?? null,
       size:        a?.size ?? null
     });
 
     let text        = message.content || null;
-    let attachments = [...message.attachments.values()].map(mapAttachment);
+    let attachments = [...message.attachments.values()].map((a, idx) => mapAttachment(a, idx));
 
     if (!text && attachments.length === 0) {
-      const snapshot = message.messageSnapshots?.first?.();
+      const snapshot = typeof message.messageSnapshots?.first === 'function'
+        ? message.messageSnapshots.first()
+        : null;
       const snapMsg  = snapshot?.message;
       if (snapMsg) {
         const snapAttachmentsRaw = snapMsg.attachments;
@@ -56,7 +58,7 @@ export function startDiscord(onMessage, onReaction, onDelete) {
             : [];
 
         const snapText = snapMsg.content || null;
-        const mappedSnapAttachments = snapAttachments.map(mapAttachment);
+        const mappedSnapAttachments = snapAttachments.map((a, idx) => mapAttachment(a, idx));
         if (snapText || mappedSnapAttachments.length > 0) {
           text = snapText ? `[⤴ Weitergeleitet]\n${snapText}` : '[⤴ Weitergeleitet]';
           attachments = mappedSnapAttachments;
