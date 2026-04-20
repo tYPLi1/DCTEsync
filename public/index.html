@@ -1,9 +1,12 @@
 <!DOCTYPE html>
-<html lang="de" data-theme="light">
+<html lang="de">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>DCTEsync – Dashboard</title>
+<script>
+(function(){var t=localStorage.getItem('theme')||(window.matchMedia('(prefers-color-scheme:dark)').matches?'dark':'light');document.documentElement.setAttribute('data-theme',t)})();
+</script>
 <style>
 /* ── Theme Variables ──────────────────────────────────────────────────── */
 :root {
@@ -379,7 +382,7 @@ button { font-family: var(--font); }
           <label for="f-tg">Telegram Chat ID</label>
           <div style="display:flex;gap:6px;align-items:flex-end">
             <input type="text" id="f-tg" placeholder="-1001234567890" required style="flex:1" />
-            <button type="button" class="btn btn-ghost btn-sm" onclick="showAutoDetect('f-tg')" title="Auto-Detect">&#128269;</button>
+            <button type="button" class="btn btn-ghost btn-sm" onclick="showAutoDetect('f-tg')" title="Auto-Detect" aria-label="Auto-Detect Telegram Chat">&#128269;</button>
           </div>
         </div>
         <div class="form-group">
@@ -431,14 +434,14 @@ button { font-family: var(--font); }
             <label for="s-tg-token">Telegram Bot Token</label>
             <div class="token-field">
               <input type="password" id="s-tg-token" name="TELEGRAM_TOKEN" autocomplete="off" disabled />
-              <button type="button" class="btn-lock" title="Bearbeiten" onclick="unlockField('s-tg-token',this)">&#128274;</button>
+              <button type="button" class="btn-lock" title="Bearbeiten" aria-label="Token-Feld entsperren" onclick="unlockField('s-tg-token',this)">&#128274;</button>
             </div>
           </div>
           <div class="form-group">
             <label for="s-dc-token">Discord Bot Token</label>
             <div class="token-field">
               <input type="password" id="s-dc-token" name="DISCORD_TOKEN" autocomplete="off" disabled />
-              <button type="button" class="btn-lock" title="Bearbeiten" onclick="unlockField('s-dc-token',this)">&#128274;</button>
+              <button type="button" class="btn-lock" title="Bearbeiten" aria-label="Token-Feld entsperren" onclick="unlockField('s-dc-token',this)">&#128274;</button>
             </div>
           </div>
         </div>
@@ -461,14 +464,14 @@ button { font-family: var(--font); }
             <label for="s-anthropic">Anthropic API Key (Claude Haiku)</label>
             <div class="token-field">
               <input type="password" id="s-anthropic" name="ANTHROPIC_API_KEY" autocomplete="off" disabled />
-              <button type="button" class="btn-lock" title="Bearbeiten" onclick="unlockField('s-anthropic',this)">&#128274;</button>
+              <button type="button" class="btn-lock" title="Bearbeiten" aria-label="Token-Feld entsperren" onclick="unlockField('s-anthropic',this)">&#128274;</button>
             </div>
           </div>
           <div class="form-group">
             <label for="s-openai">OpenAI API Key (GPT-4o-mini)</label>
             <div class="token-field">
               <input type="password" id="s-openai" name="OPENAI_API_KEY" autocomplete="off" disabled />
-              <button type="button" class="btn-lock" title="Bearbeiten" onclick="unlockField('s-openai',this)">&#128274;</button>
+              <button type="button" class="btn-lock" title="Bearbeiten" aria-label="Token-Feld entsperren" onclick="unlockField('s-openai',this)">&#128274;</button>
             </div>
           </div>
         </div>
@@ -506,7 +509,7 @@ button { font-family: var(--font); }
             <label for="s-google">Google Translate API Key</label>
             <div class="token-field">
               <input type="password" id="s-google" name="GOOGLE_TRANSLATE_API_KEY" autocomplete="off" disabled />
-              <button type="button" class="btn-lock" title="Bearbeiten" onclick="unlockField('s-google',this)">&#128274;</button>
+              <button type="button" class="btn-lock" title="Bearbeiten" aria-label="Token-Feld entsperren" onclick="unlockField('s-google',this)">&#128274;</button>
             </div>
           </div>
           <div class="form-group wide" id="deepl-keys-section">
@@ -536,14 +539,14 @@ button { font-family: var(--font); }
             <label for="s-libre-key">LibreTranslate API Key</label>
             <div class="token-field">
               <input type="password" id="s-libre-key" name="LIBRETRANSLATE_API_KEY" autocomplete="off" disabled />
-              <button type="button" class="btn-lock" title="Bearbeiten" onclick="unlockField('s-libre-key',this)">&#128274;</button>
+              <button type="button" class="btn-lock" title="Bearbeiten" aria-label="Token-Feld entsperren" onclick="unlockField('s-libre-key',this)">&#128274;</button>
             </div>
           </div>
           <div class="form-group">
             <label for="s-ms-key">Microsoft Translator Key</label>
             <div class="token-field">
               <input type="password" id="s-ms-key" name="MICROSOFT_TRANSLATOR_KEY" autocomplete="off" disabled />
-              <button type="button" class="btn-lock" title="Bearbeiten" onclick="unlockField('s-ms-key',this)">&#128274;</button>
+              <button type="button" class="btn-lock" title="Bearbeiten" aria-label="Token-Feld entsperren" onclick="unlockField('s-ms-key',this)">&#128274;</button>
             </div>
             <div id="ms-usage" class="usage-wrap" style="display:none">
               <div class="usage-bar"><div class="usage-bar-fill" id="ms-usage-fill" style="width:0%"></div></div>
@@ -1766,6 +1769,7 @@ function unlockField(id, btn) {
     input.placeholder = '';
     btn.textContent = '🔓';
     btn.title = 'Sperren';
+    btn.setAttribute('aria-label', 'Token-Feld sperren');
     btn.classList.add('unlocked');
     input.focus();
   } else {
@@ -1773,6 +1777,7 @@ function unlockField(id, btn) {
     input.value = '';
     btn.textContent = '🔒';
     btn.title = 'Bearbeiten';
+    btn.setAttribute('aria-label', 'Token-Feld entsperren');
     btn.classList.remove('unlocked');
     input.placeholder = input.dataset.hasValue === '1' ? '***' : '';
   }
