@@ -34,13 +34,35 @@ export function startDiscord(onMessage, onReaction, onDelete) {
     if (message.webhookId) return;  // ignore our own bridge webhooks (prevents loops)
     if (!message.guild) return;     // ignore DMs — guild messages only
 
-    const text        = message.content || null;
-    const attachments = [...message.attachments.values()].map(a => ({
-      url:         a.url,
-      name:        a.name,
-      contentType: a.contentType ?? null,
-      size:        a.size
-    }));
+    const mapAttachment = (a) => ({
+      url:         a?.url ?? null,
+      name:        a?.name ?? a?.filename ?? 'attachment',
+      contentType: a?.contentType ?? null,
+      size:        a?.size ?? null
+    });
+
+    let text        = message.content || null;
+    let attachments = [...message.attachments.values()].map(mapAttachment);
+
+    if (!text && attachments.length === 0) {
+      const snapshot = message.messageSnapshots?.first?.();
+      const snapMsg  = snapshot?.message;
+      if (snapMsg) {
+        const snapAttachmentsRaw = snapMsg.attachments;
+        const snapAttachments = snapAttachmentsRaw?.values
+          ? [...snapAttachmentsRaw.values()]
+          : Array.isArray(snapAttachmentsRaw)
+            ? snapAttachmentsRaw
+            : [];
+
+        const snapText = snapMsg.content || null;
+        const mappedSnapAttachments = snapAttachments.map(mapAttachment);
+        if (snapText || mappedSnapAttachments.length > 0) {
+          text = snapText ? `[⤴ Weitergeleitet]\n${snapText}` : '[⤴ Weitergeleitet]';
+          attachments = mappedSnapAttachments;
+        }
+      }
+    }
 
     if (!text && attachments.length === 0) return;
 
