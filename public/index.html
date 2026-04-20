@@ -83,27 +83,17 @@ a { color: var(--accent); text-decoration: none; }
   user-select: none;
 }
 .nav-item:hover { color: var(--text); background: var(--surface-alt); }
-.nav-item.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; }
+.nav-item.active { color: var(--accent); border-left-color: var(--accent); font-weight: 600; background: rgba(88,101,242,.06); }
 .nav-item .nav-icon { font-size: 1rem; width: 20px; text-align: center; flex-shrink: 0; }
 
 .sidebar-footer {
   padding: 14px 20px; border-top: 1px solid var(--border);
   display: flex; flex-direction: column; gap: 10px;
 }
-.sidebar-theme-toggle {
-  display: flex; align-items: center; gap: 8px; font-size: .78rem; color: var(--text-secondary); cursor: pointer;
+.sidebar-theme-row {
+  display: flex; align-items: center; gap: 8px;
 }
-.sidebar-theme-toggle input[type="checkbox"] { display: none; }
-.sidebar-theme-toggle .theme-switch {
-  width: 34px; height: 18px; background: var(--border); border-radius: 18px;
-  position: relative; transition: background .2s; flex-shrink: 0;
-}
-.sidebar-theme-toggle .theme-switch::before {
-  content: ''; position: absolute; width: 12px; height: 12px;
-  left: 3px; top: 3px; background: #fff; border-radius: 50%; transition: transform .2s;
-}
-.sidebar-theme-toggle input:checked ~ .theme-switch { background: var(--accent); }
-.sidebar-theme-toggle input:checked ~ .theme-switch::before { transform: translateX(16px); }
+.sidebar-theme-label { font-size: .78rem; color: var(--text-secondary); }
 
 .sidebar-version { font-size: .7rem; color: var(--text-secondary); opacity: .7; }
 
@@ -415,10 +405,12 @@ button { font-family: var(--font); }
     </div>
   </nav>
   <div class="sidebar-footer">
-    <div class="sidebar-theme-toggle" onclick="toggleTheme()">
-      <input type="checkbox" id="theme-checkbox" />
-      <span class="theme-switch"></span>
-      <span id="theme-label">☀ Light Mode</span>
+    <div class="sidebar-theme-row">
+      <label class="toggle">
+        <input type="checkbox" id="theme-checkbox" onchange="toggleTheme()" />
+        <span class="slider"></span>
+      </label>
+      <span class="sidebar-theme-label" id="theme-label">☀ Light Mode</span>
     </div>
     <span class="sidebar-version">DCTEsync v1.0</span>
   </div>
@@ -744,8 +736,8 @@ function initTheme() {
 }
 
 function toggleTheme() {
-  const current = document.documentElement.getAttribute('data-theme');
-  const next = current === 'dark' ? 'light' : 'dark';
+  const cb = document.getElementById('theme-checkbox');
+  const next = (cb && cb.checked) ? 'light' : 'dark';
   document.documentElement.setAttribute('data-theme', next);
   localStorage.setItem('theme', next);
   updateThemeUI(next);
@@ -754,8 +746,8 @@ function toggleTheme() {
 function updateThemeUI(theme) {
   const cb = document.getElementById('theme-checkbox');
   const label = document.getElementById('theme-label');
-  if (cb) cb.checked = theme === 'dark';
-  if (label) label.textContent = theme === 'dark' ? '☽ Dark Mode' : '☀ Light Mode';
+  if (cb) cb.checked = theme === 'light';
+  if (label) label.textContent = theme === 'light' ? '☽ Dark Mode' : '☀ Light Mode';
 }
 
 initTheme();
