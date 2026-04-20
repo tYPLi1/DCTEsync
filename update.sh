@@ -260,7 +260,34 @@ WantedBy=multi-user.target
 SVCEOF
 
   $SUDO systemctl daemon-reload
-  echo -e "${GREEN}✓ Service-Konfiguration aktualisiert${RESET}"
+  $SUDO systemctl enable "${SERVICE_NAME}" 2>/dev/null && \
+    echo -e "${GREEN}✓ Service-Konfiguration aktualisiert + Autostart aktiviert${RESET}" || \
+    echo -e "${GREEN}✓ Service-Konfiguration aktualisiert${RESET}"
+fi
+
+# ── Autostart prüfen ──────────────────────────────────────────────────────────
+if systemctl list-unit-files 2>/dev/null | grep -qw "${SERVICE_NAME}\.service"; then
+  SVC_STATE="$(systemctl is-enabled "${SERVICE_NAME}" 2>/dev/null || true)"
+  case "$SVC_STATE" in
+    enabled)
+      echo -e "${GREEN}✓ Autostart ist aktiv${RESET}"
+      ;;
+    masked)
+      echo -e "${YELLOW}⚠ Service ist maskiert — Autostart wird nicht geändert${RESET}"
+      ;;
+    static)
+      echo -e "${GREEN}✓ Service ist statisch konfiguriert${RESET}"
+      ;;
+    disabled|"")
+      echo -e "${YELLOW}⚠ Autostart ist nicht aktiviert — wird jetzt aktiviert…${RESET}"
+      $SUDO systemctl enable "${SERVICE_NAME}" 2>/dev/null && \
+        echo -e "${GREEN}✓ Autostart aktiviert${RESET}" || \
+        echo -e "${RED}✗ Autostart konnte nicht aktiviert werden${RESET}"
+      ;;
+    *)
+      echo -e "${YELLOW}ℹ Service-Status: ${SVC_STATE}${RESET}"
+      ;;
+  esac
 fi
 
 # ── Restart service if systemd is set up ─────────────────────────────────────

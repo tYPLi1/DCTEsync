@@ -226,7 +226,7 @@ function resolveTierForUser(pair, { platform, userId, roles = [] }) {
 
 // ── Telegram → Discord ────────────────────────────────────────────────────────
 
-async function onTelegramMessage({ chatId, msgId, senderName, senderId, senderUsername, avatarUrl, isBot, text, media, replyToMsgId, topicId }) {
+async function onTelegramMessage({ chatId, msgId, senderName, senderId, senderUsername, avatarUrl, isBot, text, media, replyToMsgId, topicId, forwardInfo }) {
   // Track this chat for auto-detect UI
   trackTelegramChat(chatId, senderName);
 
@@ -247,12 +247,20 @@ async function onTelegramMessage({ chatId, msgId, senderName, senderId, senderUs
 
   const { provider: tierProvider, chain: tierChain } = resolveTierForUser(pair, { platform: 'telegram', userId: senderId });
 
+  // ── Format forwarded message prefix ────────────────────────────────────────
+  let forwardPrefix = '';
+  if (forwardInfo) {
+    const fwdLabel = forwardInfo.type === 'channel' ? '📢' : '↪️';
+    forwardPrefix = `${fwdLabel} *Forwarded from ${forwardInfo.name}*\n`;
+  }
+
   // ── Text-only ──────────────────────────────────────────────────────────────
   if (!media) {
     if (!text) return;
     const translated = await safeTranslate(text, pair.translation, 'tgToDiscord', tierChain, tierProvider);
-    console.log(`[bridge] TG→DC | pair=${pair.id} | text | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
-    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, translated, null,
+    const fullText = forwardPrefix + translated;
+    console.log(`[bridge] TG→DC | pair=${pair.id} | text | from="${senderName}"${dcReplyId ? ' (reply)' : ''}${forwardInfo ? ' (forwarded)' : ''}`);
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, fullText, null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);
     return;
@@ -266,7 +274,8 @@ async function onTelegramMessage({ chatId, msgId, senderName, senderId, senderUs
 
   // ── Non-file types (location, poll, animated sticker) ─────────────────────
   if (media.type === 'sticker_animated') {
-    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, `[Sticker ${media.emoji}]`, null,
+    const fullText = forwardPrefix + `[Sticker ${media.emoji}]`;
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, fullText, null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);
     return;
@@ -274,7 +283,8 @@ async function onTelegramMessage({ chatId, msgId, senderName, senderId, senderUs
 
   if (media.type === 'location') {
     const msg = `📍 Location: https://maps.google.com/?q=${media.latitude},${media.longitude}`;
-    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, msg, null,
+    const fullText = forwardPrefix + msg;
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, fullText, null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);
     return;
@@ -282,7 +292,8 @@ async function onTelegramMessage({ chatId, msgId, senderName, senderId, senderUs
 
   if (media.type === 'poll') {
     const lines = [`📊 **Poll:** ${media.question}`, ...media.options.map(o => `• ${o}`)];
-    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, lines.join('\n'), null,
+    const fullText = forwardPrefix + lines.join('\n');
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, fullText, null,
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);
     return;
@@ -306,9 +317,10 @@ async function onTelegramMessage({ chatId, msgId, senderName, senderId, senderUs
 
     const captionRaw = media.caption || text || null;
     const caption    = captionRaw ? await safeTranslate(captionRaw, pair.translation, 'tgToDiscord', tierChain, tierProvider) : null;
+    const fullCaption = forwardPrefix ? (forwardPrefix + (caption || '')).trim() || null : caption;
 
-    console.log(`[bridge] TG→DC | pair=${pair.id} | type=${media.type} | from="${senderName}"${dcReplyId ? ' (reply)' : ''}`);
-    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, caption,
+    console.log(`[bridge] TG→DC | pair=${pair.id} | type=${media.type} | from="${senderName}"${dcReplyId ? ' (reply)' : ''}${forwardInfo ? ' (forwarded)' : ''}`);
+    const dcMsgId = await sendToDiscord(pair.discordWebhookUrl, senderName, avatarUrl, fullCaption,
       { buffer, mimeType: media.mimeType, fileName: media.fileName },
       dcReplyId ? { replyToMsgId: dcReplyId, channelId: pair.discordChannelId } : {});
     if (msgId && dcMsgId) storeMapping(pair, msgId, dcMsgId);

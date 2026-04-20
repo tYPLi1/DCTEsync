@@ -3,6 +3,7 @@ import fetch from 'node-fetch';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 if (!DISCORD_TOKEN) { console.error('[discord] DISCORD_TOKEN is not set. Exiting.'); process.exit(1); }
+const FORWARDED_PREFIX = '[⤴ Weitergeleitet]';
 
 export const client = new Client({
   intents: [
@@ -34,13 +35,47 @@ export function startDiscord(onMessage, onReaction, onDelete) {
     if (message.webhookId) return;  // ignore our own bridge webhooks (prevents loops)
     if (!message.guild) return;     // ignore DMs — guild messages only
 
-    const text        = message.content || null;
-    const attachments = [...message.attachments.values()].map(a => ({
-      url:         a.url,
-      name:        a.name,
-      contentType: a.contentType ?? null,
-      size:        a.size
-    }));
+    const mapAttachment = (a, idx = 0) => {
+      if (!a) return null;
+      return {
+        url:         a.url ?? null,
+        name:        a.name ?? a.filename ?? `attachment-${idx + 1}`,
+        contentType: a.contentType ?? null,
+        size:        a.size ?? null
+      };
+    };
+
+    const toAttachmentList = (raw) => {
+      if (!raw) return [];
+      if (typeof raw.values === 'function') return [...raw.values()];
+      if (Array.isArray(raw)) return raw;
+      return [];
+    };
+
+    let text        = message.content || null;
+    let attachments = toAttachmentList(message.attachments)
+      .map((a, idx) => mapAttachment(a, idx))
+      .filter(a => a?.url);
+
+    if (!text && attachments.length === 0) {
+      const snapshots = message.messageSnapshots;
+      const snapshot = snapshots && typeof snapshots.first === 'function'
+        ? snapshots.first()
+        : null;
+      const snapMsg  = snapshot?.message;
+      if (snapMsg) {
+        const snapAttachments = toAttachmentList(snapMsg.attachments);
+
+        const snapText = snapMsg.content || null;
+        const mappedSnapAttachments = snapAttachments
+          .map((a, idx) => mapAttachment(a, idx))
+          .filter(a => a?.url);
+        if (snapText || mappedSnapAttachments.length > 0) {
+          text = snapText ? `${FORWARDED_PREFIX}\n${snapText}` : FORWARDED_PREFIX;
+          attachments = mappedSnapAttachments;
+        }
+      }
+    }
 
     if (!text && attachments.length === 0) return;
 
