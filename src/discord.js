@@ -3,6 +3,7 @@ import fetch from 'node-fetch';
 
 const DISCORD_TOKEN = process.env.DISCORD_TOKEN;
 if (!DISCORD_TOKEN) { console.error('[discord] DISCORD_TOKEN is not set. Exiting.'); process.exit(1); }
+const FORWARDED_PREFIX = '[⤴ Weitergeleitet]';
 
 export const client = new Client({
   intents: [
@@ -70,7 +71,7 @@ export function startDiscord(onMessage, onReaction, onDelete) {
           .map((a, idx) => mapAttachment(a, idx))
           .filter(a => a?.url);
         if (snapText || mappedSnapAttachments.length > 0) {
-          text = snapText ? `[⤴ Weitergeleitet]\n${snapText}` : '[⤴ Weitergeleitet]';
+          text = snapText ? `${FORWARDED_PREFIX}\n${snapText}` : FORWARDED_PREFIX;
           attachments = mappedSnapAttachments;
         }
       }
