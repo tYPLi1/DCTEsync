@@ -34,28 +34,34 @@ export function startDiscord(onMessage, onReaction, onDelete) {
     if (message.webhookId) return;  // ignore our own bridge webhooks (prevents loops)
     if (!message.guild) return;     // ignore DMs — guild messages only
 
-    const mapAttachment = (a, idx = 0) => ({
-      url:         a?.url ?? null,
-      name:        a?.name ?? a?.filename ?? `attachment-${idx + 1}`,
-      contentType: a?.contentType ?? null,
-      size:        a?.size ?? null
-    });
+    const mapAttachment = (a, idx = 0) => {
+      if (!a) return { url: null, name: `attachment-${idx + 1}`, contentType: null, size: null };
+      return {
+        url:         a.url ?? null,
+        name:        a.name ?? a.filename ?? `attachment-${idx + 1}`,
+        contentType: a.contentType ?? null,
+        size:        a.size ?? null
+      };
+    };
+
+    const toAttachmentList = (raw) => {
+      if (!raw) return [];
+      if (typeof raw.values === 'function') return [...raw.values()];
+      if (Array.isArray(raw)) return raw;
+      return [];
+    };
 
     let text        = message.content || null;
     let attachments = [...message.attachments.values()].map((a, idx) => mapAttachment(a, idx));
 
     if (!text && attachments.length === 0) {
-      const snapshot = typeof message.messageSnapshots?.first === 'function'
-        ? message.messageSnapshots.first()
+      const snapshots = message.messageSnapshots;
+      const snapshot = snapshots && typeof snapshots.first === 'function'
+        ? snapshots.first()
         : null;
       const snapMsg  = snapshot?.message;
       if (snapMsg) {
-        const snapAttachmentsRaw = snapMsg.attachments;
-        const snapAttachments = snapAttachmentsRaw?.values
-          ? [...snapAttachmentsRaw.values()]
-          : Array.isArray(snapAttachmentsRaw)
-            ? snapAttachmentsRaw
-            : [];
+        const snapAttachments = toAttachmentList(snapMsg.attachments);
 
         const snapText = snapMsg.content || null;
         const mappedSnapAttachments = snapAttachments.map((a, idx) => mapAttachment(a, idx));
