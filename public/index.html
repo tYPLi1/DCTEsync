@@ -854,9 +854,7 @@ async function refreshStatus() {
     const m = Math.floor((s.uptime % 3600) / 60);
     document.getElementById('stat-uptime').textContent = `Uptime: ${h}h ${m}m`;
     document.getElementById('stat-pairs').textContent = `${s.pairs} Verbindung${s.pairs !== 1 ? 'en' : ''}`;
-    const tp = s.translationProviders ?? {};
-    const active = PROVIDERS.filter(p => tp[p.id]).map(p => p.label.split(' (')[0]);
-    window._providerStatus = tp;
+    window._providerStatus = s.translationProviders ?? {};
   } catch { /* ignore */ }
 }
 
