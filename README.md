@@ -10,6 +10,7 @@ A self-hosted bridge bot that syncs Telegram groups/channels with Discord channe
 - **Multiple independent pairs** (many TG chats to many Discord channels)
 - **Telegram groups, supergroups, channels, and forum topics**
 - **Reply sync** in both directions (via persistent message mapping)
+- **Forwarded message sync** from Telegram → Discord (original sender preserved)
 - **Reaction sync** (Unicode emoji) in both directions
 - **Deletion sync** from Discord → Telegram
 - **Per-pair media toggles** per direction
@@ -243,3 +244,4 @@ sudo systemctl stop tg-bridge
 - Discord custom guild emoji reactions are not mirrored to Telegram
 - Telegram custom/animated reactions are ignored (Unicode emoji only)
 - Telegram does not provide bot-side delete events, so **TG → DC delete sync is not possible**
+- **Discord → Telegram forwarded messages**: Discord has no native "forward" feature; messages can only be copied/reposted without preserving original sender metadata

@@ -95,7 +95,8 @@ export async function downloadTelegramFile(fileId, sizeHint = 0) {
  * Telegram channels (not just groups) are bridged correctly.
  *
  * @param {(msg: object) => void} onMessage
- *   Called with { chatId, msgId, senderName, avatarUrl, text, media, replyToMsgId, topicId }
+ *   Called with { chatId, msgId, senderName, avatarUrl, text, media, replyToMsgId, topicId, forwardInfo }
+ *   forwardInfo: { type: 'user'|'hidden_user'|'chat'|'channel', name: string, date: number } | null
  * @param {(reaction: object) => void} [onReaction]
  *   Called with { chatId, msgId, added: string[], removed: string[] }
  */
@@ -138,12 +139,46 @@ export function startTelegram(onMessage, onReaction) {
     // is_topic_message is true for messages inside a forum topic thread
     const topicId = msg.is_topic_message ? (msg.message_thread_id ?? null) : null;
 
-    console.log(`[telegram] ${chatType} msg from chatId=${chatId} sender="${senderName}"${isBot ? ' [bot]' : ''}${topicId ? ` topicId=${topicId}` : ''}`);
+    // ── Forward metadata ───────────────────────────────────────────────────
+    // Extract forwarded message information using forward_origin (Bot API 7.0+)
+    // or fallback to legacy forward_from/forward_date fields
+    let forwardInfo = null;
+    if (msg.forward_origin) {
+      const origin = msg.forward_origin;
+      if (origin.type === 'user') {
+        // Forwarded from a user who allows their account to be shown
+        const fwdUser = origin.sender_user;
+        const fwdName = [fwdUser.first_name, fwdUser.last_name].filter(Boolean).join(' ') || fwdUser.username || 'User';
+        forwardInfo = { type: 'user', name: fwdName, date: origin.date };
+      } else if (origin.type === 'hidden_user') {
+        // Forwarded from a user who chose to hide their account
+        forwardInfo = { type: 'hidden_user', name: origin.sender_user_name, date: origin.date };
+      } else if (origin.type === 'chat' || origin.type === 'channel') {
+        // Forwarded from a chat or channel
+        const chat = origin.sender_chat ?? origin.chat;
+        forwardInfo = { type: origin.type, name: chat?.title || 'Channel', date: origin.date };
+      }
+    } else if (msg.forward_date) {
+      // Fallback to legacy fields for older Bot API versions
+      if (msg.forward_from) {
+        const fwdUser = msg.forward_from;
+        const fwdName = [fwdUser.first_name, fwdUser.last_name].filter(Boolean).join(' ') || fwdUser.username || 'User';
+        forwardInfo = { type: 'user', name: fwdName, date: msg.forward_date };
+      } else if (msg.forward_sender_name) {
+        forwardInfo = { type: 'hidden_user', name: msg.forward_sender_name, date: msg.forward_date };
+      } else if (msg.forward_from_chat) {
+        const chat = msg.forward_from_chat;
+        const chatType = chat.type === 'channel' ? 'channel' : 'chat';
+        forwardInfo = { type: chatType, name: chat.title || 'Channel', date: msg.forward_date };
+      }
+    }
+
+    console.log(`[telegram] ${chatType} msg from chatId=${chatId} sender="${senderName}"${isBot ? ' [bot]' : ''}${topicId ? ` topicId=${topicId}` : ''}${forwardInfo ? ` [forwarded from: ${forwardInfo.name}]` : ''}`);
 
     const avatarUrl      = sender ? await getAvatarUrl(sender.id) : null;
     const senderId       = sender ? String(sender.id) : null;
     const senderUsername = sender?.username ?? null;
-    await onMessage({ chatId, msgId: msg.message_id, senderName, senderId, senderUsername, avatarUrl, isBot, text, media, replyToMsgId, topicId });
+    await onMessage({ chatId, msgId: msg.message_id, senderName, senderId, senderUsername, avatarUrl, isBot, text, media, replyToMsgId, topicId, forwardInfo });
   };
 
   // ── Reaction handler ───────────────────────────────────────────────────────
