@@ -35,7 +35,7 @@ export function startDiscord(onMessage, onReaction, onDelete) {
     if (!message.guild) return;     // ignore DMs — guild messages only
 
     const mapAttachment = (a, idx = 0) => {
-      if (!a) return { url: null, name: `attachment-${idx + 1}`, contentType: null, size: null };
+      if (!a) return null;
       return {
         url:         a.url ?? null,
         name:        a.name ?? a.filename ?? `attachment-${idx + 1}`,
@@ -52,7 +52,9 @@ export function startDiscord(onMessage, onReaction, onDelete) {
     };
 
     let text        = message.content || null;
-    let attachments = [...message.attachments.values()].map((a, idx) => mapAttachment(a, idx));
+    let attachments = toAttachmentList(message.attachments)
+      .map((a, idx) => mapAttachment(a, idx))
+      .filter(a => a?.url);
 
     if (!text && attachments.length === 0) {
       const snapshots = message.messageSnapshots;
@@ -64,7 +66,9 @@ export function startDiscord(onMessage, onReaction, onDelete) {
         const snapAttachments = toAttachmentList(snapMsg.attachments);
 
         const snapText = snapMsg.content || null;
-        const mappedSnapAttachments = snapAttachments.map((a, idx) => mapAttachment(a, idx));
+        const mappedSnapAttachments = snapAttachments
+          .map((a, idx) => mapAttachment(a, idx))
+          .filter(a => a?.url);
         if (snapText || mappedSnapAttachments.length > 0) {
           text = snapText ? `[⤴ Weitergeleitet]\n${snapText}` : '[⤴ Weitergeleitet]';
           attachments = mappedSnapAttachments;
