@@ -2426,7 +2426,7 @@ async function loadLogs() {
   const container = document.getElementById('log-container');
   if (!container) return;
   try {
-    const data = await api('GET', '/api/logs?lines=200');
+    const data = await api('GET', '/api/logs?lines=1000');
     const filter = (document.getElementById('log-filter')?.value || '').toLowerCase();
     const lines = filter ? data.lines.filter(l => l.toLowerCase().includes(filter)) : data.lines;
     container.innerHTML = '';

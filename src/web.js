@@ -787,7 +787,7 @@ export function startWeb() {
   // ── GET /api/logs ─────────────────────────────────────────────────────────
   // Returns the last N lines from the persistent log file.
   app.get('/api/logs', (req, res) => {
-    const lines = Math.min(parseInt(req.query.lines || '200', 10), 2000);
+    const lines = Math.min(parseInt(req.query.lines || '200', 10), 10000);
     res.json({ lines: readLogs(lines) });
   });
 

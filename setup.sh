@@ -355,8 +355,8 @@ StartLimitIntervalSec=300
 StartLimitBurst=10
 TimeoutStopSec=10
 EnvironmentFile=${WORKDIR}/.env
-StandardOutput=journal
-StandardError=journal
+StandardOutput=append:${WORKDIR}/data/bridge.log
+StandardError=append:${WORKDIR}/data/bridge.log
 
 [Install]
 WantedBy=multi-user.target
