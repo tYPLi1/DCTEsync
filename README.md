@@ -4,6 +4,17 @@ A self-hosted bridge bot that syncs Telegram groups/channels with Discord channe
 
 ---
 
+## Tech Stack
+
+| Language | Percentage |
+|---|---|
+| **JavaScript** | 46.5% |
+| **HTML** | 42.7% |
+| **Shell** | 10.7% |
+| **Dockerfile** | 0.1% |
+
+---
+
 ## Features
 
 - **Bidirectional sync** (Telegram ↔ Discord)
